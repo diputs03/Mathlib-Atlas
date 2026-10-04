@@ -1,0 +1,734 @@
+Notes on Executing the Scripts
+==============================
+
+Layout
+------
+Lean extraction scripts live in  script\lean\  (NOT directly under script\).
+Python helpers live in            script\python\.
+Generated data goes to            data\.
+Never modify external\mathlib4 (read-only).
+
+Cost
+----
+Scripts 00-07 `import Mathlib`, which loads the entire Mathlib environment and
+takes a few minutes (plus memory on the order of ~3 GB). Once loaded, traversing
+the ~777k constants is cheap; design every extractor to load Mathlib ONCE and do
+all passes in that process, rather than relaunching Lean per task.
+
+Running (Windows, no WSL)
+------------------------
+From the repository root:
+
+    lake env lean script\lean\06_module_statistics.lean
+    lake env lean script\lean\07_persistent_corpus.lean
+    lake env lean script\lean\08_dependency_graph.lean
+    lake env lean script\lean\09_expr_relations.lean
+    lake env lean script\lean\10_typeclasses.lean
+    lake env lean script\lean\11_namespaces.lean
+    lake env lean script\lean\12_decl_links.lean
+
+Operational caveats learned the hard way:
+* The correct path is `script\lean\<file>.lean`. A stale command using
+  `script\<file>.lean` fails with "no such file or directory (error code 4058)"
+  because that path no longer exists after the scripts were reorganized.
+* In a non-interactive/background shell, `~/.elan/bin` may be missing from
+  PATH; prefix the command with
+      $env:PATH = "C:\Users\diput\.elan\bin;" + $env:PATH
+  (the elan `lake` shim needs to spawn its child `lean`).
+* The editor runs its own `lake serve` / `lean --server` / `lean --worker`
+  processes; do not mistake those for a command-line run, and do not kill them.
+
+Results
+-------
+06_module_statistics (Lean 4.34.0-rc2):
+    Mathlib declarations: 574391
+    Distinct Mathlib modules: 8287
+  (No List.qsort is used; an unsorted Std.HashMap iteration is fine.)
+
+07_persistent_corpus: see notes\07_corpus_design.md for schema, size tiers and
+measured sizes. Validate output with:
+    python script\python\validate_corpus.py data\atlas_corpus.jsonl
+
+08_dependency_graph: see notes\08_graph_design.md for edge schema and labels.
+Full run: 574391 sources -> 16316230 unique edges (data\atlas_edges.jsonl).
+Verify (add --corpus to cross-reference every edge source against 07):
+    python script\python\verify_edges.py data\atlas_edges.jsonl `
+        --corpus data\atlas_corpus.jsonl
+
+09_expr_relations: see notes\09_relations_design.md. Full run: 574391 sources ->
+16316230 role-labelled relations (data\atlas_relations.jsonl) + 574391 type
+skeletons (data\atlas_type_skeletons.jsonl). Verify and reconcile against 08:
+    python script\python\verify_relations.py data\atlas_relations.jsonl `
+        data\atlas_type_skeletons.jsonl --edges data\atlas_edges.jsonl `
+        --join-prefix "CategoryTheory."
+(The four type/value role counts per relation sum to 08's typeCount/valueCount;
+global sums and per-pair joins must match exactly.)
+
+10_typeclasses: see notes\10_typeclasses_design.md for schema and the
+abbrev-alias mechanism. Full run: 2422 canonical classes + 326 abbrev aliases
+(data\atlas_classes.jsonl) and 43221 instances, 2487 stated via an alias, 0
+unresolved (data\atlas_instances.jsonl). Verify and cross-check 09 constraints:
+    python script\python\verify_typeclasses.py data\atlas_classes.jsonl `
+        data\atlas_instances.jsonl --skeletons data\atlas_type_skeletons.jsonl
+(DecidableEq/FunLike/FiniteDimensional/SmallCategory etc. are `abbrev`s, not
+registered classes; the extractor resolves them to their canonical class.)
+
+11_namespaces: see notes\11_namespaces_design.md. Full run: 777280 constants ->
+168662 namespace nodes (data\atlas_namespaces.jsonl) + 170569 (namespace,module)
+incidence rows (data\atlas_namespace_modules.jsonl); Mathlib total 574391.
+Verify:
+    python script\python\verify_namespaces.py data\atlas_namespaces.jsonl `
+        data\atlas_namespace_modules.jsonl
+(Private _private.* names are recovered via Lean.privateToUserName? before the
+namespace prefix is taken; module provenance still comes from the environment.)
+
+12_decl_links: see notes\12_decl_links_design.md. Full run: 777233 constants ->
+80374 labelled structural links (data\atlas_decl_links.jsonl): inductive
+families, structure projections/extends, equation/unfold lemmas, aliases.
+Verify (and cross-check that all class parents from 10 appear as structExtends):
+    python script\python\verify_decl_links.py data\atlas_decl_links.jsonl `
+        --classes data\atlas_classes.jsonl
+
+13_features: see notes\13_features_design.md. Full run: 777326 constants ->
+574391 Mathlib per-declaration feature rows (data\atlas_features.jsonl,
+type/value node+depth counts, const occurrences, binder counts, rfl and
+recursor/casesOn signals, class/instance/generated flags). 27185 rfl-closed
+proofs; truncated type 2535 / value 26908; extraction ~138 min.
+Verify (cross-checks binder/conclusion fields against 09 skeletons):
+    python script\python\verify_features.py data\atlas_features.jsonl `
+        --skeletons data\atlas_type_skeletons.jsonl
+(isClass 1991 / isInstance 33215 match script 10 Mathlib counts exactly.)
+
+14_graph_analysis: see notes\14_graph_analysis_design.md and
+notes\14_graph_summary.txt. Pure-Python combination of 13 nodes + 09 reference
+edges + 12 structural links (no Lean run). Outputs:
+data\atlas_node_graph_stats.jsonl (574391 nodes, labelled in/out degrees),
+data\atlas_module_graph.jsonl (8287 modules + bridge signals),
+data\atlas_area_summary.jsonl (32 areas), data\atlas_area_edges.jsonl (437).
+16316230 distinct edges / 752376214 reference occurrences; 839 zero-out,
+176006 never-referenced; top hubs are typeclass-coercion defs. Verify:
+    python script\python\verify_graph.py
+
+15_discovery: see notes\15_discovery_design.md and notes\15_discovery_report.md.
+Pure-Python candidate-pattern mining over 13 features + 09 skeletons + 14 stats
+(+ one streamed 09 pass for area masks). A/B/C run on the 357553 human-authored
+decls (216838 generated excluded, count matches 13). Outputs data\discovery_*.jsonl:
+type_clusters 4738 (repeated signatures / missing abstractions),
+cross_area_twins 5557 (analogies), generalization_families 10924,
+bridge_declarations 16464, anomalies 553. Verify:
+    python script\python\verify_discovery.py
+
+16_isapply_abstraction (case study B): see notes\16_funlike_isapply_case.md.
+Lean probe script\lean\16_isapply_abstraction.lean compiles exit 0 (no
+errors/warnings). 15-B top twin family = the FunLike pointwise apply API;
+generic Is*Apply classes (Data\FunLike\IsApply.lean, 2026) and generic
+prod/sum_apply + FunLike.coe_sum (Algebra\BigOperators\Pi.lean:235-251) already
+exist; 95 Is*Apply instances/21 files, 153 deprecated apply aliases/24 files.
+Kernel-verified the straggler NormedAddGroupHom: added downstream (Mathlib
+read-only) IsZeroApply/IsAddApply rfl instances, derived its coe_sum/sum_apply
+from the generic API; MultilinearMap shown covered by same generic sum_apply.
+Run: lake env lean script\lean\16_isapply_abstraction.lean (log notes\16_isapply_abstraction.log).
+
+17_embeddings: see notes\17_embeddings_design.md. Pure-Python deterministic
+TF-IDF embeddings over 13 features + 09 skeletons; domain-agnostic tokens (no
+module/name), anchor (conclusion head + constraint class) inverted-index
+candidates (df 2..80), exact cosine re-rank, threshold 0.70, top8. Embedded
+298701 human math decls (vocab 66676); 988877 candidates -> 265371 kept pairs
+(235857 fuzzy = missed by exact 15-B, 29514 exact-already), 32366 cross-area,
+52959 docs with neighbours. Outputs data\embedding_nearest_neighbors.jsonl,
+embedding_cross_area_analogies.jsonl, embedding_summary.json. Verify:
+    python script\python\verify_embeddings.py   -> VERIFICATION OK
+
+18_cluster_analogies: see notes\18_cluster_design.md. Pure-Python deterministic
+union-find communities over the script-17 undirected similarity graph
+(52959 nodes, 177813 edges). 7-cut sweep stored; primary threshold 0.90 ->
+8216 communities (4582 pairs / 2132 3-4 / 982 5-8 / 406 9-16 / 105 17-32 /
+8 33+), 606 cross-area, 29492 clustered nodes. Case-B apply API recovered as
+cross-area communities (#22 coe_smul 19/7areas, #23 smul_apply 19/6 anchored
+C:IsSMulApply, #81 neg_apply/#83 sub_apply 10/5, #113/#114 coe_neg/coe_sub).
+Outputs data\analogy_clusters.jsonl, analogy_cluster_assignment.jsonl,
+analogy_cluster_summary.json. Verify:
+    python script\python\verify_clusters.py   -> VERIFICATION OK
+
+19_community_triage: see notes\19_community_triage_design.md. Labels each of
+the 606 cross-area script-18 communities by abstraction status using clusters +
+full assignment + features + the 2748-name class table:
+  shared_head_analogy 348, generic_api_exists 144,
+  structure_lifted_per_carrier 29, weak 66, pointwise_repeated 11, infra 8.
+Key discriminator: "built class" = real class that is both C: anchor and H:
+conclusion head and matches the decl suffix (Set.addCommMonoid builds
+AddCommMonoid) -> structure lifted independently per carrier; a helper class
+used only as a constraint (Is*Apply) -> generic_api_exists. Outputs
+data\community_triage.jsonl + community_triage_summary.json. Verify:
+    python script\python\verify_community_triage.py -> VERIFICATION OK
+
+20_pointwise_lift (case study C, Lean): see notes\20_pointwise_lift_case.md.
+The 29 structure-lifted communities are the pointwise algebra families. Kernel
+check (downstream, Mathlib untouched): Set/Filter are primitive pointwise lifts
+(image2_* / map2_* lemmas); Finset inherits its ENTIRE hierarchy from Set via
+the generic Function.Injective.* transfer API (coe_injective.<class> ... coe_mul)
+- linking the pointwise clusters to the separate InjSurj transfer clusters.
+Shared assoc/one laws kernel-checked for Set/Finset/Filter; Finset needs
+DecidableEq. `lake env lean script\lean\20_pointwise_lift.lean` -> exit 0 clean.
+
+21_shared_head_triage: see notes\21_shared_head_design.md. Second-stage split of
+the 348 script-19 shared_head_analogy communities by namespace/term-size:
+  mixed 244, head_api 85, repeated_proof 19, bundled_witness 0. head_api = the
+head's own generic API (AddHom/MulHom/Fork/Pairwise); repeated_proof = large
+carrier-specific constructions (PullbackCone/RepresentableBy/IsTopologicalBasis,
+induced toOpens/toTopologicalSpace maps), inspected, no factorable common
+argument; mixed holds the trivial-bundle families (Equivalence/GaloisInsertion).
+Outputs data\shared_head_triage.jsonl + _summary.json. Verify:
+    python script\python\verify_shared_head.py -> VERIFICATION OK
+
+22_equivalence_witness (case study D, Lean): see notes\22_equivalence_witness_case.md.
+Widest shared_head community #10 Equivalence = 26 witnesses across 10 areas;
+source + kernel check show each is the trivial bundle Equivalence.mk refl symm
+trans (zigzag uses generic Relation.ReflTransGen constructors). Generic
+constructors already exist; the per-relation refl/symm/trans is irreducible.
+Rebuilt list-rotation / graph-reachability / perm-samecycle witnesses from
+Equivalence.mk downstream -> `lake env lean script\lean\22_equivalence_witness.lean`
+exit 0 clean. Conclusion: shared_head multiplicity is expected, correctly
+lower priority than structure_lifted (case C).
+
+23_binary_lift (case study E, Lean): see notes\23_binary_lift_case.md. Positive
+construction of the Set/Filter missing abstraction. Set.image2_assoc
+(Data/Set/NAry.lean l.207) and Filter.map2_assoc (Order/Filter/NAry.lean l.178)
+have identical shape. Downstream class PointwiseLift T {lift2, liftAssoc,
+liftComm}, instances for Set (image2) and Filter (map2) from existing lemmas,
+and generic PointwiseLift.semigroup/commSemigroup written once. Same builder
+produces assoc/comm for both carriers. Does NOT open scoped Pointwise (no
+diamond). `lake env lean script\lean\23_binary_lift.lean` -> exit 0, no
+errors/warnings. Full ladder (MulOneClass/Monoid) extends via pure + identity
+laws; Finset still uses Injective transfer, Ultrafilter via Filter.
+
+24_monoid_ladder (case study E cont., Lean): see notes\24_monoid_ladder_case.md.
+Extended PointwiseLift with subclass PointwiseLiftOne {pure, liftLeftId,
+liftRightId}, paralleling Set.image2_left/right_identity (Data/Set/NAry.lean
+l.306/312, unit {a}=singleton) and Filter.map2_left/right_identity
+(Order/Filter/NAry.lean l.275/280, unit pure a). Generic mulOneClass/monoid/
+commMonoid written once; same builder yields the full Semigroup..CommMonoid
+ladder for BOTH Set and Filter, unit/assoc/comm laws kernel-checked. npow left
+to default (Mathlib threads instNPow due to pointwise-nat-action choice).
+`lake env lean script\lean\24_monoid_ladder.lean` -> exit 0, no
+errors/warnings.
+
+25_group_ladder (case study E cont.2, Lean): see notes\25_group_boundary_case.md.
+Tested how far the generic pointwise ladder goes. Added unary-lift subclass
+PointwiseLiftInv {lift1=Set.image/Filter.map, lift1Anti from
+image_image2_antidistrib (Data/Set/NAry.lean l.274) /
+map_map2_antidistrib (Order/Filter/NAry.lean l.245)}. Generic DivInvMonoid
+(inv:=lift1 inv, div:=mul-inv, div_eq_mul_inv rfl) and generic inverse law
+(x*y)^-1 = y^-1*x^-1 (via mul_inv_rev) both kernel-check for Set AND Filter.
+Group does NOT lift: its sole extra field inv_mul_cancel a^-1*a=1 is a diagonal
+cancellation law that fails pointwise; kernel-checked empty-set counterexample
+(image inv empty * empty = empty != {1}, Set.empty_ne_singleton). Generic ladder
+valid exactly through DivInvMonoid. `lake env lean script\lean\25_group_ladder.lean`
+-> exit 0, no errors/warnings.
+
+26_pointwise_repeated (Python): see notes\26_pointwise_repeated_design.md. Triaged
+the 11 pointwise_repeated cross-area communities from script 19 using the shared
+VALUE HEAD (proof/body head constant) joined from atlas_features. Classes:
+shared_generic_core 6 (already delegate to one generic lemma/ctor:
+dependsOn_restrict->Set.dependsOn_domRestrict, isMulCommutative_closure->
+of_setLike_mul_comm, isTerminalPUnit->IsTerminal.ofUnique, covBy_insert->
+WCovBy.covBy_of_lt, isBasis_gen->Filter.IsBasis.mk, lt_wf->Subrelation.wf);
+generic_type_construction 3 (toGlueData/encoding/residueField build one generic
+target type); shared_strategy_only 2 (subsingleton=alias of pairwise_bot_iff,
+isAtom_singleton=And.intro of carrier lattice facts) source-cleared, no
+extractable lemma. ZERO open abstraction opportunities. verify_pointwise_repeated
+-> VERIFICATION OK. Outputs data\pointwise_repeated_triage.jsonl + summary.
+Also wrote notes\26_caseE_design_memo.md consolidating probes 23-25.
+
+27_weak_triage (Python): see notes\27_weak_triage_design.md. Closed the final
+triage bucket: 66 weak cross-area communities split by shared VALUE head + head
+namespace affinity. generic_reuse 49 (already call one domain generic
+ctor/lemma: Fan.mk, ReflectsIsomorphisms.mk, ShortExact.mk, Fintype.ofFinite,
+Subring.mk, Cardinal.mk, IsOpenEmbedding.measurableEmbedding ...),
+mechanical_shape 15 (only And.intro/Eq.rec/Iff.mpr/iInf/Bind.bind/HDiv.hDiv
+shared), unrelated 2. Candidate opportunities 0. verify_weak_triage ->
+VERIFICATION OK. Outputs data\weak_triage.jsonl + summary. Full 606-community
+cross-area sweep now closed; only positive kernel-verified missing abstraction
+is case E PointwiseLift (23-25).
+
+28_semantic_analogy (Python): see notes\28_semantic_design.md. SEMANTIC track
+responding to the point that undiscovered structure has an incomplete structural
+signature, so head-equality (17-27) is blind to it. Strips identity; vectorizes
+predicate-role P, proof-strategy-role V, constraint-AREA profile R, concept words
+of conclusion/value head (camelCase split), and shape buckets. Blocks on role
+signature + ONE shared conclusion word (inverted index -> 0 oversized blocks
+skipped). Emits only theorem/theorem, cross-area, DIFFERENT conclusion head AND
+value head, >=1 shared conclusion word & >=2 result words, cosine>=0.80. Full:
+scanned 574,391; embedded 285,823; vocab 5,018; 33,341 blocks; 20,068,370 pairs;
+627 hidden candidates, 776 docs, 1,093 role-shortlist entries. Families: 304
+locus-relative (global/On/At/AE/Eventually: Continuous, StrictMono, Monotone,
+Integrable, StronglyMeasurable, MeasurePreserving...), 124 real-vs-manifold
+differentiability (FDeriv/MFDeriv, ContDiff/ContMDiff), Exact/ShortExact,
+limit/colimit. These are mostly already-known parallel APIs; candidate case F =
+one generic Filter-relative predicate (P/POn s/PAt x/AE), partially present via
+filters, NOT yet built. verify_semantic independently rebuilds everything:
+pair set 627=627 missing 0 extra 0, cosines agree, deterministic -> VERIFICATION
+OK. Outputs data\semantic_hidden_candidates.jsonl, semantic_role_shortlist.json,
+semantic_summary.json.
+
+29_filter_relative_predicate (Lean, case F): see notes\29_filter_relative_case.md.
+Probes whether script-28's 304-pair locus-relative family (global / On-set /
+At-point / Within / almost-everywhere) is ONE generic. abbrev AtLocus l q :=
+Eventually q l. Kernel-checks the positive ladder: AtLocus top q <-> forall x,q x
+(eventually_top); AtLocus (principal s) q <-> forall x in s, q x
+(eventually_principal); EventuallyEq = AtLocus of equality (Iff.rfl);
+nhdsWithin x s = nhds x inf principal s (rfl); ContinuousOn/Continuous recovered
+via principal/top. Boundary 1 (arity): MonotoneOn/StrictMonoOn need the PRODUCT
+filter principal (s x s) on alpha*alpha (monotoneOn/strictMonoOn_product_locus),
+which is why no MonotoneAt x exists (unary locus has no ordered pair). Boundary 2
+(level): AEStronglyMeasurable is existential modulo ae (Iff.rfl) = quotient-by-
+filter, not AtLocus; QuasiMeasurePreserving is a two-measure map/absolutelyCont
+relation (#check). VERDICT: unlike case E, the unifier already exists =
+Filter.Eventually (loci top/principal/nhds/ae); no new class warranted, residue
+is naming + arity + quotient-level. Exit 0, no warnings, no sorry.
+
+30_smoothness_manifold_bridge (Lean, case G): see notes\30_smoothness_manifold_case.md.
+Probes script-28's 124 real-vs-manifold pairs (FDeriv/MFDeriv, DifferentiableAt/
+MDifferentiableAt, fderiv/mfderiv, ContDiff/ContMDiff). Grounded: the MANIFOLD
+notion is the generic, defined via charts (MDifferentiableAt = ContinuousAt AND
+DifferentiableWithinAt of writtenInExtChartAt, MFDeriv/Defs.lean:248); a normed
+space is the identity-model manifold 𝓘(𝕜,E), and FDeriv.lean already proves
+coincidence at every level (hasMFDerivAt_iff_hasFDerivAt,
+mdifferentiableAt_iff_differentiableAt, mfderiv_eq_fderiv;
+contMDiff_iff_contDiff). Probe kernel-checks both directions via the aliases with
+explicit 𝓘. One genuine asymmetry: MDifferentiableAt requires ContinuousAt
+explicitly (local charts), DifferentiableAt derives it (global chart). VERDICT:
+already abstracted, no new class; naming residue + explained asymmetry. Needed
+`open scoped Manifold` for 𝓘 notation. Exit 0, no warnings, no sorry.
+
+31_semantic_ledger (Python): see notes\31_semantic_ledger_design.md. Closes the
+627 semantic candidates from script 28. Mechanical family assignment by
+conclusion-head roots: F_locus 365 (filter-relative, kernel-probed in 29),
+G_smooth 126 (real/manifold, kernel-probed in 30), strength_arity 57 (strict/
+arity/point-global/connected/embedding), cat_dual 54 (Limit/Colimit, Exact/
+ShortExact, Left/Right, Epi/Mono, Injective/Surjective), add_mul_twin 13
+(to_additive), num_domain 8, bundled_concept 4, UNRESOLVED 0. Verifier
+verify_semantic_ledger independently re-derives a per-family invariant, name-pair
+bijection to the 627, count reconciliation, empty unresolved -> VERIFICATION OK.
+Net semantic-track verdict: all 627 are existing abstractions; the only new
+construction across the whole 17-31 sweep remains case E PointwiseLift. Outputs
+data\semantic_ledger.jsonl + summary.
+
+32_weak_band_scan (Python): see notes\32_weak_band_design.md. Re-ran script 28 at
+ATLAS_SEM_THRESH=0.70 (ATLAS_OUT_TAG=_loose070; script 28 gained env overrides,
+defaults 0.80/"" unchanged -> delivered 627 run reproduces). loose 1809 vs tight
+627 => weak band [0.70,0.80) = 1182. Stage1 = ledger-31 rules (F_locus 404,
+strength_arity 139, cat_dual 69, G_smooth 68, add_mul_twin 53, bundled 43,
+num_domain 24, unresolved 382). Stage2 broader weak-band normalizers over the 382:
+strength_variant 144, arrow_strength 49, cat_limit 36, measure 26, naming 28,
+finiteness 12, independence 11, notation_twin 5, NOISE 71. The 71 noise rows read
+by hand = local/filter reformulations, Archimedean/Lp/order-dual variants and
+role-only coincidences; no coherent novel analogy. verify_weak_band independently
+re-derives band arithmetic, both partitions, residual bijection, sort order ->
+VERIFICATION OK. Outputs data\semantic_hidden_candidates_loose070.jsonl,
+semantic_weak_band_residual.jsonl (71), semantic_weak_band_summary.json.
+
+33_independence_case (Lean, candidate case H): see notes\32_weak_band_design.md.
+The weak band's only interesting cluster (11 pairs) = four "independence" notions
+(Linear/Algebraic/Convex + sSupIndep). Kernel result: NOT a new abstraction.
+LinearIndependent and AlgebraicIndependent are rfl-equal to Function.Injective of
+the structure map (linearCombination / MvPolynomial.aeval); algebraic indep is
+linear indep of the free monomial basis (basisMonomials.linearIndependent,
+aevalEquiv); AffineIndependent 𝕜 p iff LinearIndependent 𝕜 (p i -ᵥ p i0)
+(affineIndependent_iff_linearIndependent_vsub); sSupIndep/iSupIndep are generic
+over any CompleteLattice; combinatorial generic Matroid.Indep + IndepAxioms
+exists; ConvexIndependent is a convexHull anti-exchange (convex geometry, NOT a
+matroid) so a single class would be mathematically false. Exit 0, no warnings,
+no sorry. Net: weak band adds no new construction; across 16-33 the sole positive
+new abstraction remains case E PointwiseLift; 0.80 confirmed as the right cutoff.
+
+discovery_track_16_33 (consolidated memo): notes\discovery_track_16_33.md.
+Capstone of the analogy-discovery sweep. Funnels + every triage ledger + cases
+B-H in one document; all numbers reconciled against data/*_summary.json by an
+independent check (structural: 298,701 embedded -> 265,371 pairs -> 32,366
+cross-area -> 8,216 clusters -> 606 cross-area; semantic: 285,823 embedded ->
+627 candidates, 0 unresolved; weak band 1,809-627=1,182, 71 irreducible noise).
+Sole positive new abstraction across both methods: case E PointwiseLift (23-25);
+Group provably does not lift. Cases F/G/H kernel-checked as already-abstracted.
+
+34_typeclass_structure (Python) + 35_instance_gap_check (Lean): see
+notes\34_typeclass_structure_design.md (plan item 10). Built the extends DAG from
+atlas_classes (2300 Mathlib classes; 557 extend, 274 multiple inheritance, 87
+diamonds, max main-line depth 9) and concrete carrier->class map from
+atlas_instances (33215 Mathlib; 11971 concrete pairs over 1481 carriers).
+Peer-relative cross-parent gap detector: 77 rules, 20 split, 54 candidate rows.
+Lean probe 35 assumes only [C a] and builds every flagged cross-parent P a by
+inferInstance for all 20 rules -> ALL synthesize via the structure projection
+C.toP (#synth CommMonoid Z = Int.instCommMonoid). VERDICT: the 54 are
+instance-economy/style differences (redundant restatement vs relying on the
+auto-projected cross rung), NOT missing instances; the hierarchy is closed under
+cross-rungs by projection. Verifier verify_typeclass_structure rebuilds DAG + gap
+set, per-row invariants, pinned 3 known dangling-parent extraction cases ->
+VERIFICATION OK. Lean exit 0 no warnings/sorry. Outputs
+data\typeclass_gap_candidates.jsonl + typeclass_structure_summary.json.
+
+=== 36/37 generalization links (plan item 12) 2026-09-14 17:53 ===
+36_generalization_links.py: generic iff forall prefix binds Sort/Type (typeAst binderType tag sort);
+  group (conclusionHead, sorted constraint-class tuple, nDefault); covered = has generic member.
+  330601 theorems (generic 287788 / specialized 42813); 80747 groups (pureGeneric 76932,
+  covered 763, specializedOnly 3052); raw opportunities 348 -> minus 152 class/prop-fact heads,
+  minus 191 bare-logical/empty-constraint/namespace-artifact -> 5 survivors.
+  Triage: only CategoryTheory.Limits.IsZero (*.isZero_of_subsingleton, 6 concrete cats) is a
+  true repeated statement; other 4 heterogeneous L-function/analysis facts (noise).
+37_generalization_boundary.lean: #check shows IsZero needs unique_to/unique_from (unique homs);
+  Subsingleton is element-level, cannot imply categorical IsZero in arbitrary category; concrete
+  lemmas bridge via each category's ext/map_one. NEGATIVE, exit 0 no sorry.
+verify_generalization_links.py: independent rebuild, summary reconciliation + row bijection ->
+  raw 348 -152 -191 = 5, VERIFICATION OK.
+Verdict: 0 missing generalizations; residual per-carrier repetition is at categorical/element-level
+boundaries that type theory cannot abstract. Scratch removed.
+
+=== 38 namespace/theory structure (plan item 11) 2026-09-14 22:48 ===
+38_namespace_theory_structure.py: separate module (8287) / full namespace (100229) / root namespace
+  (10972); 34951 top-level. 368 root namespaces span >=3 of 32 areas; most cross-cutting Function
+  (19 areas, domShare .36), Nat 18, Finset/Equiv/Fin 17, List 16, Set 15; CategoryTheory 14 areas
+  but domShare .90. Most namespace-mixed module GroupTheory.OrderOfElement (95 roots). Area rollup:
+  Algebra 2252 roots/1344 modules vs CategoryTheory 115 roots/1099 modules (different regimes).
+  Confirmed Nat.one_mem_properDivisors... (ns Nat) in Mathlib.NumberTheory.Divisors.
+verify_namespace_structure.py: independent rebuild, conservation over ns/module/area = 574391,
+  row bijection + order -> VERIFICATION OK. Pure structural, no Lean probe needed.
+
+=== 39 typeclass bridge structure (instance graph as theory glue) 2026-09-14 23:21 ===
+39_typeclass_bridge_structure.py: 33215 mathlib instances over 2002 classes; 532 bridge classes span
+  >=3 of 32 areas; 452 area pairs share >=2 classes. Two archetypes: root plumbing (Inhabited 30/32
+  areas/1030 carriers, SizeOf 29/1571, Decidable 23) vs mid-hierarchy workhorses (Module 17 areas/43
+  carriers, Algebra 14/33, AddCommGroup 17/165, CompleteLattice 17/88). derived mean area spread
+  2.99 > root 2.37. Top glued pairs Algebra-Topology 234, Algebra-CategoryTheory 222, Algebra-RingTheory
+  214, Analysis-Topology 209. Third independent bridge view (after ref-edges 14, namespaces 38).
+verify_typeclass_bridge.py: independent rebuild, instance conservation 33215, class+pair bijection/order
+  -> VERIFICATION OK. Scratch removed.
+
+=== 40 area maturity / frontier opportunity 2026-09-15 00:25 ===
+40_area_maturity_profile.py: per-area abstraction-maturity proxies (concrete-theorem fraction =
+  0 implicit+0 inst binder; generic share, mean inst constraints, rfl fraction, instance density),
+  percentile composite maturity, opportunity=1-maturity. Declared buckets core10/frontier14/infra8.
+  Result supports hypothesis: core maturity .654 (concrete .050, constr 2.35) vs frontier .513
+  (concrete .111 = 2.2x, constr 1.86), infra .285 (metaprogramming, excluded). Frontier hunting
+  order: SetTheory .79, Dynamics .69, Combinatorics/NumberTheory .66, Condensed .58, Probability .57,
+  AlgebraicTopology .50. Within-core exceptions Data .59, Analysis .54.
+verify_area_maturity.py: independent rebuild, conservation 574391, composite+bucket means ->
+  VERIFICATION OK. Directs future sweeps to stratify/oversample frontier areas.
+
+=== 41 combined bridge ranking + consolidated memo 2026-09-15 01:49 ===
+41_combined_bridge_ranking.py: reconcile 3 views (R ref edges 14, N shared namespaces 38, I shared
+  classes 39), per-view max-normalize, average. 461 area pairs: 256 robust in all 3, 107 two, 98 one.
+  Top: Algebra-RingTheory .849, Analysis-Topology .673 (low R, high N/I = conceptual fusion),
+  Algebra-Analysis .669; Algebra-CategoryTheory is typeclass-only (I .95, R .26, N .15). Area
+  centrality Algebra 1.0, Topology .925, Data .914; frontier hubs MeasureTheory .753,
+  CategoryTheory .742, Geometry .699, NumberTheory .688.
+verify_combined_bridge.py: independent rebuild, pair/area bijection+order -> VERIFICATION OK.
+Refreshed capstone notes/discovery_track_consolidated.md covering 16-41 (supersedes 16_33).
+
+=== 42 frontier-stratified generalization scan 2026-09-15 02:09 ===
+42_frontier_generalization_scan.py: same classifier/filters as 36, area-tagged. 330601 theorems,
+  635 specialized-only groups; post-filter survivors=5 (reproduces 36, consistency OK). Pressure
+  (groups/1k thms): core 1.06 vs frontier 4.69 (4.4x); top Condensed 27.7, AlgebraicGeometry 25.3,
+  NumberTheory 9.2, SetTheory 8.0, AlgebraicTopology 7.3. BUT frontier extra repetition is 50.3%
+  class/prop-fact heads + 27.5% logical heads (concrete fact/instance accumulation), named-operator
+  survivor share 0.7% vs core 1.0% -> frontier immaturity is concrete growth, not duplicated
+  abstractable lemmas; no new Lean candidate.
+verify_frontier_scan.py: independent rebuild + 36-consistency -> VERIFICATION OK.
+
+=== 43 class-fact derivation detector 2026-09-15 03:06 ===
+43_class_fact_derivations.py: the 'different detector' 42 called for. 47342 class/prop-fact theorems ->
+  211 specialized-only groups -> 39 shared-strategy candidates (core 27/frontier 11/infra 1).
+  Disposition: 20 ownConstructor (class's own .mk = irreducible per-carrier record assembly),
+  19 reusesGeneric (shared head is an already-existing carrier-agnostic lemma/instance, e.g. NeZero.of_gt',
+  NormedSpace.toIsBoundedSMul, normal_of_isAddCommutative). genuineGaps=0. Structural proof: an identical
+  valueHead closing goals over distinct carriers is necessarily polymorphic = the existing generic; a
+  carrier-specific derivation would have a different head per carrier. No Lean probe needed.
+verify_class_fact_derivations.py: independent rebuild/bijection/disposition/sort -> VERIFICATION OK.
+
+=== 44 frontier-restricted analogy map 2026-09-15 10:37 ===
+44_frontier_analogy_map.py: reuses 17/28 pair artifacts (no re-embedding); frontier-involved pairs
+  frontier-core 1791 / frontier-frontier 392 / frontier-infra 230. frontier<->core DIFFERENT-head
+  groups = 73 (structural 17, semantic 56). Triage: 17 wrapperVariant (Eq/Iff/Mono/Epi over one
+  construction), 56 sharedHeadFamily (manifold M-prefix/locality ContMDiff~ContDiff case G, Filter.
+  Eventually family case F, PreservesHomology, SplitEpiCategory~IsSplitEpi, Injective~Injective2),
+  unresolved=0. NEGATIVE: unlike PointwiseLift every pair already shares the unifying generic as a
+  constraint class or head family. Donor map: Geometry<-Analysis 104, MeasureTheory<-Analysis 26/Order 19.
+verify_frontier_analogy_map.py: independent rebuild/bijection/triage/donor/sort -> VERIFICATION OK.
+
+=== 45 famous research-problem footprint 2026-09-15 11:03 ===
+45_research_problem_footprint.py: user reframed 'frontier' = famous modern/open problems with Lean code. Curated 5 +
+  FLT positive control; direct(name regex) vs support(adjacent module prefixes). Results at pinned commit:
+  Erdos unit-distance NAMED present (SimpleGraph.UnitDistEmbedding, 31) +258 extremal; Jacobian conjecture 0 named,
+  2513 support (MvPolynomial, etale 960, SubmersivePresentation.jacobian_isUnit = exact det-unit hypothesis);
+  multicolor Ramsey 0 named (no Ramsey module at commit) +837 clique/coloring/extremal; Collatz 0 named (no Hailstone)
+  +303 periodic/omega/fixed; Navier-Stokes 0 named, NO PDE layer, only ODE 208 (Picard-Lindelof/Gronwall).
+  FLT control: n=3 FLT.Three 191 + n=4 FLT.Four/Fermat42 proved. Readiness: unit-distance > Jacobian > Ramsey >
+  Collatz > Navier-Stokes.
+verify_research_problem_footprint.py: independent rebuild of counts/modules/kinds/status -> VERIFICATION OK.
+
+=== 46 Erdos unit-distance dependency frontier 2026-09-15 11:09 ===
+46_unit_distance_frontier.py: decompose O(n^4/3) Spencer-Szemeredi-Trotter bound into 10 ingredients; match by name
+  regex AND expected module (defeats false-friends). PRESENT (4): unit-distance object 31, Euclidean/inner-product,
+  Turan 126, Zarankiewicz K_s,t 31. PARTIAL (1): homological Euler characteristic (no planar V-E+F). ABSENT (5):
+  geometric point-line incidence (327 raw hits=IncidenceAlgebra false friend), Szemeredi-Trotter (171=regularity
+  lemma), crossing number (125=martingale upcrossing), planar graph (18=coplanar vectors), graph degeneracy
+  (446=nondegenerate matrices). Build order: degeneracy -> planar+Euler -> crossing lemma -> point-line incidence
+  -> Szemeredi-Trotter -> unit-distance bound. Combinatorial half built; incidence/planar half is the frontier.
+verify_unit_distance_frontier.py: independent rebuild + present/absent consistency + bijection -> VERIFICATION OK.
+
+=== 47 second-level frontier: degeneracy vs planar 2026-09-15 11:25 ===
+47_degeneracy_planar_frontier.py: sub-prereqs inside SimpleGraph for 46's first two build steps.
+  GRAPH DEGENERACY = assembly gap 5/7 present: degree, neighborSet+card=degree, subgraph/deleteVerts,
+  exists_minimal_degree_vertex (the key lemma already exists!), coloring; missing only elimination ordering
+  + degeneracy theorem/edge-bound. PLANAR = layer gap 3/6: cycles/connected/trees present, but plane drawing
+  (206 'embed' hits=graph-hom false friend), faces, planar Euler V-E+F (IsEulerian trails excluded) all absent.
+  => degeneracy is the near-term buildable step; planar needs a topological embedding layer.
+verify_degeneracy_planar_frontier.py: independent rebuild + present/absent consistency + gapKind -> VERIFICATION OK.
+
+=== 48 graph degeneracy, built the hard way (kernel-verified Lean) 2026-09-18 ===
+48_degeneracy.lean: FIRST Atlas output that adds a theorem instead of mapping. Defines
+  SimpleGraph.DegeneracyAtMost k via peeling constructors bot/peel (k parameter, graph index).
+  Proves ncard_edgeSet_le_mul_ncard_support: |E| <= k*|support| (stated with Set.ncard so the
+  induction motive is DecidableRel-instance independent), and corollary card_edgeFinset_le_mul_card
+  |E| <= k*|V|. Peel arithmetic from Mathlib card_edgeFinset_deleteIncidenceSet /
+  card_support_deleteIncidenceSet; isolated-vertex and support-shrink cases; nonlinear close via
+  Nat.mul_add/sub_add_cancel. Examples: bot is 0-degenerate; K3 edgeFinset = 3 by decide.
+  API settled: no Set.card (use Set.ncard); ncard coe lemma is lowercase Set.ncard_coe_finset;
+  rewrite edgeSet not edgeFinset across G=bot; omit [DecidableEq V] in for instance-free helpers.
+Verification: lake env lean exit 0, empty log, no sorry/warnings (kernel verified). Closes the first
+  of the five absent unit-distance ingredients from 46.
+
+=== 49 degeneracy => greedy (k+1)-colorability (kernel-verified Lean) 2026-09-18 ===
+49_degeneracy_coloring.lean: second theorem-ADDING script. Proves DegeneracyAtMost.colorable_succ:
+  k-degenerate finite graph is properly (k+1)-colorable (greedy along reverse peeling), plus
+  chromaticNumber_le_succ (chi <= k+1). Greedy: H=deleteIncidenceSet v colored by IH; <=k neighbors
+  occupy <=k colors via Finset.card_image_le; Finset.exists_mem_notMem_of_card_lt_card gives a free
+  color; three properness cases via deleteIncidenceSet_adj/ne_of_adj. Confirmed absent in Mathlib
+  (no coloringNumber/degenera/greedy under SimpleGraph). API: Colorable is DecidableRel-free so motive
+  instance-independent; do not subst x=v (removes v); mem_neighborFinset center implicit (simpa [N]);
+  if_pos/if_neg deprecated -> ite_eq_left/right. Verification: lake env lean exit 0, empty log, no sorry.
+
+=== 50 finite graphs always admit a degeneracy ordering (kernel-verified Lean) 2026-09-18 ===
+50_degeneracy_elimination.lean: third theorem-ADDING script; constructive-existence half consumed by 48/49.
+  of_forall_exists_low_degree k: if every nonempty graph has a support vertex of degree <= k, every graph
+  is k-degenerate, by Nat.strong_induction_on on Fintype.card support (peeling a support vertex strictly
+  shrinks support via card_support_deleteIncidenceSet). degenerate_card_sub_one: EVERY finite n-vertex
+  graph is (n-1)-degenerate (support nonempty via support_eq_bot_iff; degree_lt_card_verts). Recovers
+  |E|<=(n-1)n and chi<=n constructively with 48/49. API: 'rec' is reserved keyword; strong_induction_on
+  takes no named motive (carry DecidableRel explicitly + letI, scope-disable linter.style.haveILetI);
+  (support_eq_bot_iff (G:=H)).mp not support_eq_bot_iff.mp. Verification: lake env lean exit 0, empty log,
+  no sorry. Tight induced-subgraph equivalence still parked (G.induce yields a subtype).
+
+=== 51 planar edge bounds E<=3V-6 / E<=2V-4 from Euler (kernel-verified Lean) 2026-09-18 ===
+51_planar_edge_bounds.lean: fourth theorem-ADDING script; crossing-lemma/unit-distance chain consumes only
+  these two arithmetic consequences of planarity. namespace SimpleGraph.PlanarBounds: planar_edge_bound
+  (n-e+f=2, 3f<=2e, n>=3 -> e<=3n-6), bipartite (4f<=2e -> e<=2n-4); PlaneData/BipartitePlaneData
+  structures carry faces+euler+faceBoundary; graph corollaries in Fintype.card V / card edgeFinset;
+  sharpness triangle & K4 saturate e=3n-6. Prove core in Z (linarith), cast via Nat.cast_sub+cast_mul+
+  norm_num (zify/ring fail through Nat subtraction/products); plain -- comment before omit[DecidableEq].
+  Verification: lake env lean exit 0, empty log, no sorry. HONEST SCOPE: proves downstream CONSEQUENCES of
+  the planar layer; the embedding->faces->Euler(V-E+F=2) layer itself is NOT built (rotation systems encode
+  any orientable surface chi=2-2g; sign gives only parity; constant 2 needs genus/topology).
+
+=== 52 SEMANTIC donor-transfer map for incompletely-formalized frontier (part b) 2026-09-18 ===
+52_frontier_semantic_donors.py + verify_frontier_semantic_donors.py (VERIFICATION OK; verifier rebuilds df in
+  its own corpus pass and recomputes meaning cosine for 39 sampled pairs from raw rows). Asymmetric meaning-first
+  matcher: frontier targets (famous-problem seeds + thin/opaque decls in 14 frontier areas) -> mature core-area
+  donors. Two TF-IDF channels (concept-word meaning; abstract role P/V/R/S/shape); sim=.65 meaning+.35 role; gate
+  is meaning (>=2 shared words), structural divergence REPORTED not required; distinctive-word inverted index
+  (df<=2000); drop notation boilerplate and same-concept-family pairs sharing a rare word (df<=400; 17,167 dropped).
+  287,173 eligible; 1,781 targets; 186,207 donors; 703 targets (39.5%) with strong donor; 3,698 pairs (3,251 gap).
+  FINDINGS: independent semantic confirmation of layer-gap zeros (planar/ramsey/collatz/navier-stokes = 0 named);
+  jacobian<-RingTheory/LinearAlgebra (MvPolynomial.eval2, LinearMap.baseChange); unit-distance<-Topology
+  (IsometryEquiv/ContinuousMap.mk); colorClass~Set.image2 (PointwiseLift recurs); corpus 'degeneracy' is simplicial
+  ExtraDegeneracy not graph degeneracy (false friend -> motivates 48-50); 'crossing' is martingale upperCrossingTime.
+  Top pairs = frontier specializations re-deriving core generics (iotaChainComplex~ChainComplex, contMDiff~contDiff,
+  compLp~norm): genericization candidates. Donor-routing/coverage instrument, not a conjecture generator.
+
+=== 53 crossing lemma cr >= E^3/(64 V^2) kernel-verified Lean 2026-09-18 ===
+53_crossing_lemma.lean: fifth theorem-ADDING script; quantitative engine for unit-distance/incidence. namespace
+  SimpleGraph.CrossingLemma: crossing_number_linear (delete one edge/crossing -> planar subgraph <=3n-6 from 51
+  => c >= e-3n+6, in Z), crossing_number_linear' (c>=e-3n, R), crossing_lemma (n>0, e>=4n, sampling hypothesis
+  forall p in (0,1]: p^4 c >= p^2 e - 3 p n  => c >= e^3/(64 n^2)); optimal p=4n/e, p^2 e-3pn=4n^2/e,
+  (4n^2/e)/p^4=e^3/(64n^2) via field_simp;ring; p<=1 via div_le_one. Verification: lake env lean exit 0, empty
+  log, no sorry. HONEST SCOPE: two un-built inputs isolated as hypotheses: (1) plane-drawing/crossing model +
+  planarization by edge deletion (the embedding layer, shared with 51); (2) expectation wiring (p/p^2/p^4 survival
+  via linearity of expectation). Crossing lemma incl constant 1/64 and e>=4n threshold fully proved given those.
+  Lean: keep linear bound in Z then exact_mod_cast to R; quantify sampling over p instead of internal let;
+  field_simp [pos.ne'] at hge |-; linarith for division; make hn do real work for unused-var linter.
+
+=== frontier meta-analysis capstone (45-53 revision) 2026-09-18 ===
+notes/frontier_meta_analysis.md: critical revision of the frontier arc; ranked discoveries D1-D5 + honest non-
+  breakthroughs + triage model. D1 assembly-gap vs layer-gap taxonomy validated 3 ways (formal module anchoring,
+  actual kernel construction, independent semantic matcher); keyword surface anti-correlated with formal presence
+  (false friends crossing 327/degeneracy 446/etc, zero in-module). D2 readiness map: unit-distance 31 named/258
+  support most ready; Jacobian 0 named/2513 support with jacobian_isUnit exact hypothesis; Ramsey/Collatz/
+  Navier-Stokes layer-blocked; FLT control 305. D3 frontier re-derives core generics (44: 56 sharedHeadFamily/0
+  unresolved; 52 top pairs specializations; colorClass~Set.image2 & compLp re-discover PointwiseLift). D4 map-gap-
+  construct-verify loop demonstrated kernel-verified (48-51,53). D5 semantic needed for incomplete layers but tops
+  out at donor-routing. Three opportunity kinds: layer gaps (construct), genericization (only mineable seam),
+  machinery-present conjecture targets (Jacobian). No new-to-humanity theorem yet (stated explicitly).
+
+=== script 54 incidence / Szemeredi-Trotter / unit distance (hard way) 2026-09-18 ===
+script/lean/54_incidence_unit_distance.lean; namespace SimpleGraph.Incidence; exit 0, empty log, no sorry/warnings.
+Multigraph crossing lemma c >= e^3/(64 s^2 n^2) for e >= 4 s n (sampling p=4sn/e); general bounded-intersection
+incidence bound I <= K n^(2/3) m^(2/3) + 4 s n + m for K^3 >= 32 t s^2; Szemeredi-Trotter lines (s=t=1,K=4):
+I <= 4 n^(2/3) m^(2/3) + 4n + m; unit circles (s=t=2,K=8,m=n,I=2u): u(n) <= 9 n^(4/3) for n>=1 (constant derived,
+not quoted). Geometry/probability left as hypotheses hcr/hcross/hI/hsample only. Design note 54_incidence_unit_distance_design.md.
+
+=== script 55 combinatorial planar maps / Euler PROVED (hard way) 2026-09-18 ===
+script/lean/55_planar_maps.lean; namespace SimpleGraph.PlanarMaps; exit 0, empty log, no sorry/warnings.
+Inductive IsPlanarMap (point / addVertexEdge / addFaceEdge); Euler v+f=e+2 PROVED by induction (+ 1<=v,1<=f,v<=e+1,
+signed int form). IsSimplePlanarMap (triangle base, diagonal guard 3f+1<=2e) -> 3f<=2e -> e<=3v-6;
+IsBipartitePlanarMap (quadrilateral base, guard 4f+2<=2e) -> 4f<=2e -> e<=2v-4; bounds now unconditional for the
+class, script 51 PlaneData inhabitable. One cited (not proved) fact: topological realization/characterization
+(rotation system genus g=0). Design note 55_planar_maps_design.md.
+[56] combinatorial maps / rotation systems (script/lean/56_combinatorial_maps.lean; namespace SimpleGraph.CombiMap, structure Map).
+  - Dart model on a finite type alpha: fixed-point-free edge involution tau (tau^2=1), vertex rotation sigma, face phi = tau * sigma^-1.
+  - orbits alpha p = Multiset.card p.cycleType + (Fintype.card alpha - p.cycleType.sum) (nontrivial cycles + fixed points); no Mathlib numCycles.
+  - Proved: orbits_one, orbits_swap (= card-1), orbits_le_card; 2*edges = Fintype.card alpha (every tau-cycle has length 2, support = univ).
+  - Central theorem chi_even: Even (V - E + F) for EVERY map, from sign(phi)=sign(tau)*sign(sigma) via sign_of_cycleType and a sign-exponent parity lemma; hence noncomputable genus with chi = 2 - 2*genus.
+  - Genus-zero seeds on Fin 2: linkMap (V2 E1 F1) and loopMap (V1 E1 F2), both chi=2, proved concretely.
+  - Not proved (stated in design note): connectedness, genus >= 0 / chi <= 2 (needs the swap split/join cycle-count lemma Mathlib lacks), genus-zero realization.
+  - Verified: lake env lean -> EXIT=0, notes/56_combinatorial_maps.log empty (0 bytes), no sorry, no warnings. Design note notes/56_combinatorial_maps_design.md.[57] transposition split/join orbit lemma (script/lean/57_swap_split_join.lean; namespace SimpleGraph.OrbitSplit).
+  - Re-states orbits (nontrivial cycles + fixed points); orbits_one, orbits_cycle, orbits_swap.
+  - orbits_adjacent_split: IsCycle f, f x != x -> orbits (swap x (f x) * f) = orbits f + 1; length-2 via f=swap (cut=1), length>=3 via IsCycle.swap_mul + support_swap_mul_eq (support loses x).
+  - orbits_fixed_join: IsCycle f, f z = z, f x != x -> h = swap z x * f is one cycle, support h = insert z f.support, orbits h = orbits f - 1. IsCycle built directly via the basepoint/enumeration constructor; period minimality from pow_eq_one_iff' + orderOf_dvd; (h^(j+1)) z = f^j x for j < orderOf f; SameCycle.exists_pow_eq' covers the support.
+  - This is the named primitive 56 said was missing for connected chi <= 2 / genus >= 0. General same-cycle cut and two-nontrivial-cycle join noted (same enumeration), not written.
+  - Verified: lake env lean -> EXIT=0, notes/57_swap_split_join.log empty (0 bytes), no sorry, no warnings. Design note notes/57_swap_split_join_design.md.[58] connectedness of combinatorial maps (script/lean/58_map_connectedness.lean; namespace SimpleGraph.MapConnected).
+  - Restates the Map dart model standalone (edge involution tau, vertex rotation sigma, face phi = tau*sigma^-1); vertGroup = closure {tau,sigma}, faceGroup = closure {tau,phi}.
+  - faceGroup_eq_vertGroup: phi = tau*sigma^-1 in vertGroup and sigma = phi^-1*tau (tau^2=1) in faceGroup, via Subgroup.closure_le iff; connectedness is self-dual.
+  - Inductive Reachable (single tau/sigma steps both directions, refl, trans) + symm; proved orbit (closure {tau,sigma}) x = {y | Reachable x y} both inclusions (two-direction carrier subgroup for orbit->reachable; walk induction with subgroup witnesses and smul_smul for reachable->orbit).
+  - Connected := all orbits univ; connected_iff_reachable and connected_iff_base (one base dart suffices).
+  - Genus-zero seeds linkMap and loopMap on Fin 2 both Connected (fin_cases + decide).
+  - NOT proved: connected chi <= 2 / genus >= 0 (script 59; needs general transposition +-1 incl. two-cycle join, then spanning-tree/edge-insertion); genus-zero topological realization (genuine topology, terminal layer gap).
+  - Lean notes: declare Reachable with implicit {beta}, explicit (M : Map beta), outside variable(M) scope; closure_le is an iff with explicit H; orbit membership is 2-field exists (g:H, g.x=y), normalize dot-application with have/simpa; set_option linter.unusedSectionVars false.
+  - Verified: lake env lean -> EXIT=0, notes/58_map_connectedness.log empty (0 bytes), no sorry, no warnings. Design note notes/58_map_connectedness_design.md.[59] connected Euler bound chi <= 2 / genus >= 0 (script/lean/59_connected_euler_bound.lean; namespace SimpleGraph.SwapOrbit; ~1995 lines, standalone restatement).
+  - Stage 2 general +-1: orbits_swap_same_cycle (+1; non-adjacent cut included), orbits_swap_different_cycles (two nontrivial cycles join, -1), orbits_swap_le (universal <=+1). Restriction machinery: partPerm/orbitsOn/factor_part/orbits_change on invariant finsets.
+  - Stage 3a involution_swap_factor: any involution = product of pairwise support-disjoint transposition list L; support.card = 2*L.length. Stage 3b orbits_prod_swap_le: k transpositions raise orbit count by at most k. Stage 3c invariance/orbitsOn_union/crossing_pair (connectedness + uncovered dart => edge transposition crossing to a disjoint sigma-cycle).
+  - Stage 3d connected_growth: strong induction on covered darts; V-1 pairwise-disjoint tree transpositions, each a JOIN (-1); p = T*sigma^-1 has orbits p = 1, tree.length+1 = orbits sigma; carries tree.Nodup for disjoint_prod_apply.
+  - Stage 3e Map.connected_euler_bound: edge involution factors into E transpositions; T^2=1 (disjoint tree transpositions), tauR = tau*T involution with support univ\U (U = tree-edge darts, card 2*(V-1)); R.length = E-V+1; face phi = tauR*p; F <= 1 + R.length; linarith gives V-E+F <= 2. Empty-dart branch V=E=F=0. Map.connected_genus_nonneg: 0 <= (2-chi)/2 in Q.
+  - NOT proved: chi even/integer genus for all maps (rests on 56 parity); equality chi=2 classification; genus-zero topological realization (rotation system <-> sphere cell decomposition) = terminal layer gap, real topology to cite/prove separately.
+  - Lean notes: never unfold orbitsOn before rw of cycleType eq (simp only [orbitsOn, eq]); Commute is root namespace (write Commute t u; prove equation and exact, never rw [Commute]); bridge support-disjoint to Perm.Disjoint via disjoint_iff_disjoint_support then .commute; (a*b)^2 rearrangements need explicit calc with mul_assoc; swap_self gives Equiv.refl then rfl; empty support via Finset.not_nonempty_iff_eq_empty (no eq_empty_of_forall_not_mem / disjoint_self.mp); (2*k)/2 via Nat.mul_div_cancel_left, 0/2 via Nat.zero_div; Int casts of compounds via simpa using Int.cast_le.mpr; no exact_mod_cast; defs not mentioning the section map var name it _M for dot notation.
+  - Verified: lake env lean -> EXIT=0, notes/59_connected_euler_bound.log empty (0 bytes), no sorry, no warnings. Design note notes/59_connected_euler_bound_design.md.[60] genus-zero topological realization: terminal layer-gap scoping note (notes/60_genus_zero_realization_layer_gap.md; no Lean code by design).
+  - States the Heffter-Edmonds-Youngs rotation-system embedding theorem precisely (rotation system -> orientable 2-cell embedding; faces = phi orbits; chi=V-E+F; g=(2-chi)/2; connected chi=2 -> S2 -> plane) and separates its arithmetic (kernel-verified 55-59) from its topology (not proved).
+  - Pinned-Mathlib inventory (read from source): SimpleGraph.Dart (no rotations; Maps.lean = graph homomorphisms); CW complexes Abstract+Classical+Finite+Graph (2024-26); TopCat.Sphere; manifolds/Whitney; homological EulerCharacteristic (2025, not linked to CW cell counts). Absent: rotation-system surface construction, 2-manifold gluing proof, orientability, surface classification, CW Euler formula, planarity/Kuratowski (Planar graphs = TODO header only), stereographic transfer.
+  - Stages a kernel-verified realization (CW Euler formula; ribbon/polygon gluing + local Euclidean proof; orientability; classification or weak chi=2; graph/face correspondence; stereographic projection); gluing and classification flagged research-grade.
+  - Citations: Heffter 1898; Edmonds Notices AMS 7 (1960) 646; Youngs J. Math. Mech. 12 (1963) 303-315; Ringel 1974; Gross-Tucker 1987; Hatcher 2002; Tutte.
+  - Frontier section declared finished at the combinatorial boundary: 48-59 kernel-verified; one cited classical topology theorem remains as the sole discharged-by-citation hypothesis.[61] CW Euler formula decision note (notes/61_cw_euler_formula_decision.md; no code).
+  - Verified pinned-Mathlib inventory for the topology bridge: singular chain complex + singular homology (2025), H0 (2026), homotopy invariance (2026); Eilenberg-Steenrod axiom scaffolding only (excision NOT proved); simplicial-set homology + Dold-Kan; geometric realization SSet->TopCat with adjunction (TopAdj); CW complexes abstract/classical/finite + 1-skeleton graph; chain-complex homological Euler characteristic (2025). Absent: excision, LES of pairs, cellular homology, disk/sphere homology, any topological Euler characteristic, surfaces/classification/orientability, planar graphs.
+  - Menu for the user: A stop at cited gap (current, paper-ready); C bounded chain-level layer (incidence boundary maps d1,d2 from (tau,sigma,phi-orbits), d1d2=0, rank-nullity gives V-E+F = b0-b1+b2, connected b0=1, combinatorial ker(d2)<=1 gives a SECOND algebraic proof chi<=2 plus Betti/incidence data; 1-3 scripts, no missing prerequisites); B general CW Euler formula (needs excision+LES+cellular homology+sphere homology: multi-month/year upstream Mathlib campaign, does not itself realize anything); D full realization (B + manifold links + orientability + surface classification + stereographic transfer; year-scale). Recommendation: A, optionally A+C.
+  - Housekeeping: regenerated missing canonical notes/54_incidence_unit_distance.log (empty, EXIT=0); full 48-59 log/design audit now clean.[62] incidence chain complex, Betti ranks, algebraic chi <= 2 (script/lean/62_incidence_chain_complex.lean; namespace SimpleGraph.MapChain; ~1077 lines, standalone).
+  - Chain complex over Q: C2=Q^F -d2-> C1=Q^E -d1-> C0=Q^V over the combinatorial map (tau fixed-point-free edge involution, sigma vertex rotation, phi=tau*sigma^-1 face; phi*sigma=tau). Index types V/E/F are abbrev subtypes over canonical orbit reps (cyc carriers, Finset.min' repOf).
+  - d1 column e = +1 at vRep(tau e), -1 at vRep(sigma e); corners (occEdge via edgeRepOf(sigma^-1 c), occSign +-1); corner_column: signed d1 column at a corner = indicator(vRep(phi c)) - indicator(vRep c); d2 column f sums signed corners around cyc phi f; d1*d2=0 by selection + telescoping over Finset.image face carrier (cyc_image).
+  - Rank-nullity: range d2 <= ker d1, r2 <= card E - r1, b1 >= 0; euler_betti: V-E+F = b0-b1+b2.
+  - b0=1: ker d1^T = constant vertex functions (edge relation on edgeReps propagated to all darts via edge_image_edgeReps, then sigma invariance, connected_invariant_constant); finrank 1; rank_transpose gives r1=card V-1.
+  - b2=1: ker d2 = constant face functions. Face-carrier partition (pairwise disjoint, cover; Finset.sum_biUnion takes Set.PairwiseDisjoint); d2_mulVec_as_sum + sum_occEdge force z(sigma e)=z(sigma(tau e)); conjugated tau' d = sigma(tau(sigma^-1 d)) extended to all darts via edgeRepOf_eq_iff; phi(tau'(phi^-1 d))=tau d gives tau invariance; sigma=phi^-1*tau gives sigma invariance; connectedness forces constant. r2=card F-1, b2=1.
+  - Final: euler_betti_connected chi=2-b1; euler_le_two chi<=2 for connected nonempty maps; euler_le_two_empty for IsEmpty alpha (V=E=F=0, chi=0).
+  - Second, purely linear-algebraic proof of the script-59 bound, with explicit Betti ranks; this is the algebraic half of future homology identification. Topological realization (Heffter-Edmonds-Youngs) remains the single cited terminal gap per note 60; options B/D (general CW Euler formula / full realization) not pursued per note 61.
+  - Lean notes: SameCycle is the Z-form (witness <1,by simp>/<-1,by simp>); never rw under Finset.min' (use simp only [repOf,..]); Finset.sum_biUnion takes Set.PairwiseDisjoint (up-arrow finset) and states union-sum=family-sum (use <-); sum_filter direction; sum_mul vs mul_sum by scalar side; Matrix.mulVec_mulVec vector-first; rank_transpose; finrank_range_add_finrank_ker dot notation; finrank_span_singleton; finrank_fintype_fun_eq_card; ite_eq_left/right replace if_pos/neg; Subtype.ext replaces deprecated Subtype.eq; 'simp only [...] at v.property' illegal, copy to a named have; abbrev (not def) for index subtypes so Fintype flows; dead rfl/ring and <;> vs ; both warned; acceptance bar is a 0-byte log.
+  - Verified: lake env lean -> EXIT=0, notes/62_final.log empty (0 bytes), no sorry, no warnings. Design note notes/62_chain_complex_euler_design.md.[63] planar-frontier freeze note (notes/63_planar_frontier_freeze.md; no code).
+  - Terminal index for scripts 48-62: final layer table (two kernel-verified proofs of connected chi<=2: 59 combinatorial, 62 algebraic), option C complete, option A accepted.
+  - Sole residual hypothesis named and cited: Heffter-Edmonds-Youngs rotation-system realization; options B (general CW Euler formula) and D (full realization) parked as multi-month/year upstream Mathlib campaigns.
+  - Frontier frozen; center of gravity returns to mature-stdlib discovery, weighting semantic as well as structural similarity. Parked engineering: step 07 full proof-term persistence (~70+ GB), production PointwiseLift.
+[64] stdlib-wide semantic-first analogy scan (script/python/64_stdlib_semantic_analogies.py + verify_stdlib_semantic_analogies.py, ALL CHECKS PASSED; helper 65_resolve_modules.py).
+  - Two channels over 183,271 eligible nodes in 10 core areas (574,391 scanned): semantic (meaning+role TF-IDF, rarest-anchor streaming blocker, cross-area AND cross-namespace; 130,268 pairs kept) and structural (exact type-shape blocking keyed on kind/P/V/nPi/implicits/typeNodes/depth/consts/constraint classes; complexity floor nPi>=4,typeNodes>=15; 1,973 pairs). Union-find -> 549 clusters (542 nondiffuse, 7 diffuse); 58,967 pairs emitted.
+  - Positive control: Set.image2 ~ Filter.map2 (Unicode subscript) co-cluster structCos=1.000, meaningCos=0.000; 30 parallel PointwiseLift lemma pairs co-cluster -- proves semantic-only blocking is blind to the known abstraction and validates the structural channel.
+  - NEW finding (source-adjudicated): the 'orphan functor' family. Unary map with identical type shapes, Functor/Monad registered for Set, Multiset, Filter(Functor; Monad protected/local), Ultrafilter, Part, Trunc, Erased, Seq/Seq1/WSeq, Computation, WithOne/WithZero; NOT registered for Sym2 (map_id/map_comp already proved, docstring says 'functorial'), WithBot/WithTop (map:=Option.map, map2:=Option.map2, laws proved), OnePoint (laws proved), Stream' (laws proved), Cycle (map exists, id/comp laws absent), Filter.Germ (map and map2, no instances). Binary lifts Set.image2/Filter.map2/Germ.map2/WithBot.map2/WithTop.map2/WSeq.zipWith/Option-newtype map2; Applicative absent for Filter(global),WithBot,WithTop,Germ. PR-shaped integration gap; CompactCoherentification/SummationFilter correctly excluded (need hypotheses).
+  - Classified non-findings: bundled-hom API duplication (zero_apply/add_apply/Hom.ext/hom_comp/mk.inj/coeFnAddMonoidHom across Seminorm..ContinuousLinearMap and concrete category Homs; FunLike/BundledHom propagation debt), Subobject.pi family (6 types), cross-module re-exports (TensorProduct/Algebra.TensorProduct, LinearMap/ContinuousLinearMap, AffineEquiv family, iterateFrobenius, DirectedSystem), to_additive twins, pointed-newtype family, area-bucket artifacts.
+  - Semantic-channel null result: no semantic-only missing-abstraction candidate survives adjudication over the mature stdlib; meaning vocabulary diverges exactly when a construction is independently re-derived and renamed, so exact type-shape blocking carries the signal here; semantic channel maps propagation debt/re-exports and remains the expected leader for under-developed frontier corpora (script 52).
+  - Pitfalls: full-corpus anchor DF cap raised 120->600 (2.5k anchors); log-bucket structural blocking merged tiny defs into 5.5k blob, replaced by exact signatures + complexity floor; notation boilerplate filters (_aux_/macroRules/Stx/term greek/congr_simp); semantic cluster edges still require structCos>=0.50 corroboration.
+  - Design note notes/64_stdlib_semantic_analogies_design.md; data stdlib_semantic_{pairs.jsonl,clusters.jsonl,summary.json}; log notes/64_stdlib_semantic.log.
+[66] orphan-functor falsification campaign (script/lean/66_orphan_functor_falsification.lean; probe 66b_pi_functor_probe.lean).
+  - Downstream only, Mathlib untouched. For each of Sym2, WithBot, WithTop, OnePoint, Stream', Cycle: registered Functor (map := existing lift) and LawfulFunctor. Verdict 6/6 CLEAN OMISSIONS; EXIT=0, notes/66_orphan_functor.log 0 bytes, no sorry.
+  - Sym2/WithBot/WithTop/OnePoint/Stream' reuse source-proved laws (map_id/map_comp/map_map); Cycle's id/comp laws were absent in source and are proved in the experiment via Quotient.inductionOn' + Cycle.map_coe + List.map_id/map_map.
+  - Probes: no Functor (fun alpha => Nat -> alpha) reader instance at this toolchain (no Stream' diamond); WithBot/WithTop/OnePoint are semireducible def := Option, instance search cannot see Option's Functor through them and branches are defeq (no active diamond); OnePoint continuity is orthogonal to a data-level Functor.
+  - Lean notes: LawfulFunctor fields in 4.34 are map_const/id_map/comp_map (map_const := rfl when mapConst not overridden); comp_map binder order is (h : alpha->beta) (g : beta->gamma), goal (g o h) <$> x = g <$> h <$> x; after rw of function equalities close with simp only [Function.comp_apply]; instance projections (<$>) don't match lemma patterns until show F.map ...; #synth prints to stdout (removed to keep the log 0 bytes).
+  - False-positive classes taught to Atlas (case study section 4): hypothesis-constrained lifts (CompactCoherentification.map, SummationFilter.map), alias-of-integrated-type (def F := Option; conditional), lift without proved laws (Cycle before this run), elaboration lookalikes (macroRules/Stx/congr_simp), same-theory duplicates (re-exports/to_additive twins). Four-gate omission test: no instance present; signature matches incl universes; laws present or proved; no extra hypotheses/diamond.
+  - Step 3: PR-shaped proposal notes/66_pr_candidate.md (six instances, suggested split PR A-D; not submitted). Step 4: freeze notes/66_scan_freeze.md (no further map-family hunting). Case study notes/66_orphan_functor_case_study.md.
+[67] coarse generalization-ladder scan (script/python/67_generalization_ladders.py).
+  - Vertical axis: same statement at stronger vs weaker typeclass levels; hierarchy-aware covers over constraint multisets (atlas_classes parents, transitive); same-ns + shared-name-token guards. 296,268 eligible theorems; 12,480 pairs; 610 candidate ladders after generated-proof filtering.
+  - Adjudication: pairs are coarse-shape coincidences between unrelated statements -> detectability boundary: vertical subsumption needs term-level conclusions. Documented in notes/67_69_generalization_ladders_design.md.
+
+[68] conclusion-term layer (script/lean/68_conclusion_terms.lean).
+  - Minimal instrumentation: type only = forall prefix (binder tag + type term) + conclusion, S-expressions; no proofs. First unrestricted run died on CategoryTheory giants; fixed via core-area-only filter, 20k node budget + truncation flag, flush every 10k rows.
+  - Final: scanned 777,251; 225,535 rows; 1,231 truncated (0.55%); EXIT=0; ~34 min; output data/atlas_conclusion_terms.jsonl ~1.16 GB (~60x smaller than step 07).
+  - Lean notes: 'prefix' reserved keyword; inline match needs parens; Std.HashSet.ofList; privateToUserName? precedence; unused binders must be '_'.
+
+[69] term-precise ladders (script/python/69_precise_generalization_ladders.py + verify_precise_ladders.py ALL CHECKS PASSED).
+  - Canonical key: instance-binder types replaced by fixed holes (indices kept) + conclusion; theorems only with constant relation in conclusion. 170,579 canonical statements; 3,158 multi-member groups; 7 candidate ladders, 0 cross-area.
+  - All 7 source-adjudicated as expected patterns: parent projection constants (toNontrivial/toZPow), private implementation aliases (NormalBasis, Unramified), subclass dot-notation lemmas (IsCancelSMul extends IsLeftCancelSMul), same-file let convenience (Krasner), genuinely different hypothesis regimes (iInf ker FiniteDimensional vs Finite index).
+  - NULL RESULT: the vertical generalization phenomenon is falsified on the mature stdlib -- zero unclassified ladders; Mathlib is already generalized on this axis.
+  - Lasting output: instrumentation map (phenomenon axis -> layer needed -> result); new false-positive classes (coarse-shape coincidence, sort-conclusion constructors, hierarchy projections, private aliases, subclass convenience lemmas, different-hypothesis same-name). Design note notes/67_69_generalization_ladders_design.md; data precise_ladder_* and generalization_ladder_*.
+[70] Equiv candidate generation (script/python/70_equiv_candidates.py).
+  - Plain Equiv only; conclusion-term scan: 1,135 Equiv witnesses, 492 with two constructor carriers, 276 constructor pairs. Footprints via edges (532,708 kept rows; 201,291 sources); transported counterpart keys (instance types + carrier constants holed); instance footprints via atlas_instances. 253 eligible pairs (floors fp>=20, gap>=5).
+  - Bugs fixed the hard way: inverted const_name space check; split_app range excluded the final paren; start offset (unit-tested parsing before full rerun).
+
+[71] ranking (script/python/71_rank_equiv_candidates.py).
+  - Coverage = matched/min(keys); 232 pairs <0.10; only 9 above 0.35 floor; none above 0.85; zero exact-API mirrors. Score combines coverage, gap rate, asymmetry, instance coverage, uniform witness, separation, artifact penalty.
+
+[72] Lean falsification (script/lean/72_equiv_transport_falsification.lean).
+  - Verified: CStarMatrix := Matrix defeq with ofMatrix = Equiv.refl and Matrix lemmas applying by conversion; ConnectedComponents/ZerothHomotopy Homeomorph derived in 6 lines (ccHomeomorphZh via continuous_quot_map); MaximalSpectrum equivSubtype and conditional Artinian Equiv with comp_asIdeal transport; wreath unpacking equivProd; psigma/sigma encoding Equiv + instance transport; WithBot/WithTop toDual.
+  - EXIT=0; log zero bytes; no sorry. (Two machine wedges from overlapping/timed-out relaunches, multi-hour; single-compile discipline reaffirmed.)
+
+[73] adjudication (script/python/73_adjudicate_equiv.py).
+  - All 253 classified: 124 representation_boundary, 122 false_positive, 7 intentional_asymmetry, 0 generic_transport_exists, 0 already_symmetric, 0 missing_transport_lemma, 0 missing_generic_abstraction.
+  - NULL RESULT: no new incompleteness; generic transport cannot exist (class-by-class preserved-property proofs); only derivable alias = 6-line Homeomorph convenience.
+  - New false-positive classes: defeq type copies with Equiv.refl; conditional quotient-relation equivalences; unpacking Equivs; head-constructor over-attribution; dual-side lemmas. Case study notes/70_74_equiv_transport_case_study.md.
+
+[74] freeze (notes/74_equiv_scan_freeze.md); verifier verify_equiv_experiment.py ALL CHECKS PASSED.
+  - Second audited null at declaration/type/API level (with 67/69) -> per two-positive/two-null rule, declaration-level discovery provisionally saturated. Next: proof-strategy pilot on one mature area with known shared-strategy positive control.
+[75] proof skeleton extractor for Order (script/lean/75_proof_skeletons_order.lean).
+  - One Mathlib load; thmInfo values under 50k nodes; normalized skeletons (B/F/M/T, Ln/Ls, REC, TOPROJ, INST, PRIV, K(short), A/L/Q/E/J structure; mdata dropped).
+  - EXIT=0; scanned 777,237; kept 26,828 Order theorems; 191 truncated; output 140 MB. Parse/API fixes: no Expr.fold (explicit node recursion); Literal.strVal one arg; List.get? absent (drop+head?); String.get? byte-pos issue (toList); |>. pipeline parser failures (parenthesized calls).
+
+[76] two-level skeleton clustering (script/python/76_cluster_proof_skeletons.py).
+  - Data cleaning: 8,864 generated helpers filtered downstream (_private, ._proof_, ._simp_; raw preserved); 17,964 real theorems; 11,623 coarse groups; 3,285 multi-member.
+  - POSITIVE CONTROL RECOVERED: all 41 Fin interval lemmas (Set/Finset image, map, preimage; Icc/Ico/Ioc/Ioo/Ici/uIcc; succ/castSucc/succEmb) co-grouped in one coarse shape; each proof delegates to the generic addNat/castAdd interval lemma (source-adjudicated). Secondary control: 28 dualEquiv_functor/_inverse category lemmas grouped.
+  - Verifier verify_proof_strategy_pilot.py ALL CHECKS PASSED. Pilot note notes/75_76_proof_strategy_pilot.md.[77] core-area proof skeleton extractor (script/lean/77_proof_skeletons_core.lean).
+  - One Mathlib load; all ten core areas in one compile; rows {name, module, area, skeleton}; resume support (HashSet of existing names, append mode, flush every 2000).
+  - COMPLETE RUN: 282,971 theorem skeletons; 3.59 GB; 14,324 oversized proofs truncated. Per area: Algebra 76,830; Analysis 40,027; Data 35,274; Topology 38,161; RingTheory 28,702; Order 26,828 (exactly cross-validates 75); LinearAlgebra 16,887; GroupTheory 13,261; FieldTheory 4,126; Logic 2,875.
+  - EXIT=0; String.trim deprecation fixed (trimAscii.toString); resume rerun skipped 282,971, new 0, no warnings. Earlier runs killed mid-write (~168k/180k) and three machine wedges (~80-90 min each); clean run with no overlapping TaskOutput polls.
+
+[78] coarse cross-area strategy anomalies (script/python/78_strategy_anomalies.py).
+  - 116,023 generated helpers filtered (incl. instX.eq_n sub-proofs found dominating first pass); 166,948 real theorems; 130,381 coarse groups; gates size>=12, one area >=70% pure, spanning >1 area -> 40 exported-strategy groups; 50 outlier theorems; rare-shape-weighted area overlap.
+  - Adjudication: all 40 are generic-shape coincidences (multi-lambda constructor/application shapes across unrelated lemmas; residual OrderDual instance derivations). Coarse signatures erase named-lemma identity -> false cross-area matches.
+
+[79] fine cross-area strategy groups (script/python/79_fine_strategy_groups.py).
+  - Full tree and all K tokens kept verbatim; only variables/instances/projection indices/literals erased: 164,816 fine groups; only 108 span >1 area.
+  - All 108 adjudicated (verifier, zero other): 35 defeq_copy_or_expected_generic, 27 bundled_hom_api_propagation, 17 private_decidability_fragment, 13 relation_class_propagation, 7 instance_fragment, 5 generated_equation_fragment (sizeOf_spec/match congr_eq_n/sparseCases else_eq), 4 generic_shape_coincidence, 0 new exported strategy.
+  - AUDITED NULL: cross-area exact-signature strategy detection finds only already-classified API propagation and generated fragments. Boundary: approximate matching (tree edit / name-family stemming) required for same-strategy-different-names; deliberately not built. Verifier verify_strategy_anomaly_campaign.py ALL CHECKS PASSED; case study notes/77_79_strategy_anomaly_case_study.md. One null at cross-area exact-signature level (proof representation not frozen).
+
+[80] neighborhood definitions for within-theory anomalies (script/python/80_neighborhoods.py).
+  - Scope Order+Algebra, 62,003 real theorems after canonical helper filter (Order 17,189; Algebra 44,814). Five competing neighborhoods: namespace 3,016 groups; module 1,592; family (area, conclusionHead, nPi/2) 3,206; rare-dependency (document frequency 2-12, 24,432 rare targets) covering 14,451; semantic NN covering 7,165. Output data/anomaly_base_order_algebra.jsonl + neighborhood_summary.json.
+
+[81] local anomaly scorer v3 percentile model (script/python/81_local_anomaly_scorer.py).
+  - v1/v2 rejected: robust-z on heavy-tailed features in tiny modules produced 21k anomalies; transform-consistency bug (raw values queried against log percentile maps) found and fixed via axis(r, getraw, transform, pfun).
+  - v3: heavy-tailed sizes log1p -> empirical percentiles pooled over scope; local anomaly gate g>=0.95 AND module peer median percentile <=0.60; score 10*(g-0.95)/0.05 capped 10; NA dims excluded. Stage A raw dump (anomaly_raw_order_algebra.jsonl, 23.2 MB) so reruns never rescan the 3 GB edge file.
+  - Result: 2,102 theorems with any local anomaly; 1,229 single-dim; per-dim high: proof 537, dependency 426, semantic 235, type 168, generality 105, namespace 0.
+
+[82] positive-control calibration.
+  - Recovered: Filter.map2_assoc proof anomaly 3.88 (PointwiseLift family); bridge declarations MulMemClass.mul_mem 9.89 semantic, MonovaryOn.sum_smul_comp_perm... 9.48 proof, mul_lt_mul_of_pos_right 8.21, Int.cast_mul 8.15 proof, Subfield/Subring class instances 8.62/8.02 dependency. Some ordinary Fin card lemmas flagged in small modules (4.7-6.4) -> documented false-positive rate, left for adjudication. Calibration accepted.
+
+[83] manual source adjudication (script/python/83_make_shortlist.py).
+  - 70-candidate single-dim shortlist (14/dim) checked against Mathlib source; every candidate classified, zero other: category_api 14, expected_generic 14, bundled_equiv_api 11, generated_fragment 10, instance_artifact 6, legitimate_heavy_theorem 6, family_cluster 4, ext_api 2, class_field_api 2, expected_induction_principle 1.
+  - AUDITED NULL: no ordinary-statement theorem hides a non-obvious connection; detector sees theorem-weight peaks, family density, bundled API surface, and residual generated fragments (new helper patterns: sizeOf_spec, mk.inj, hcongr, congr_simp).
+
+[84] independent verifier (script/python/verify_within_theory_anomaly_campaign.py): ALL CHECKS PASSED (counts 62,003 / 2,102 / 1,229; gates; scope integrity; shortlist zero other; positive controls recovered).
+
+[85] freeze (notes/80_85_within_theory_anomaly_case_study.md). Two audited nulls on the proof representation (cross-area exact signatures 77-79; within-theory anomalies 80-85). Missing instrument: approximate structural matching (tree edit / name-family) over proof terms, now strongly justified, not yet built; decision for next campaign. Exact-feature anomaly ranking frozen.
+[86] normalized proof representation (script/python/86_normalized_proof_trees.py).
+  - Over 282,971 raw skeletons -> 166,948 real theorem trees. Leaves B/F/M->V, Ln/Ls->N/S, PRIV->G; projection indices erased; interval endpoint constants -> P and lemma endpoint suffixes stemmed; small coercion idioms -> C; small min/max constructions -> P; id wrappers/unused lets dropped. Two layers: norm (identity kept), core (C/P pruned). Output data/proof_norm_core.jsonl. (Two perf fixes: quadratic size() calls replaced with bottom-up size; parser head tokens carry the open paren.)
+
+[87] positive controls (script/python/87_positive_controls.py).
+  - 73 Fin interval wrapper proofs (castSucc/valEmbedding/sectL/revPerm/preimage_rev), 32 bundled category dualEquiv lemmas, to_additive twins (2,075 pairs). Exact core cannot reunite families (40 distinct cores/73; 32/32) with zero outsider noise. Output data/positive_controls.json.
+
+[88] approximate matcher, two designs (script/python/88_approximate_matcher.py).
+  - v1 rare-stem blocking (>=2 shared K stems DF<=20): 22,781 matches; gate failed (Fin 13%, Dual 3%, Twin 0.1%).
+  - Direct probe: stemmed token-multiset cosine 0.91-1.00 across Fin family while fragment Jaccard splits 0.05-0.2 across wrapper variants.
+  - v2: 64-bit simhash over T, 8 bands x 8 bits; gates cosT>=0.80, cosH>=0.55. 550,975 matches (264,035 cross-area); gate still fails: Fin 20.5% coverage / largest component 99.9% outsiders; Dual 6.2%; Twin 7.8%. Outputs data/proof_matches.jsonl, proof_match_summary.json, control_gate.json.
+
+[89] bounded adjudication (script/python/89_adjudicate_approximate.py).
+  - 90 top/random cross-area samples + 400-pair census: 99.3-99.6% of shared tokens generic idiom vocabulary. Only rare-token matches: 3 pairs sharing some_injective = the known option-tag family (OnePoint/WithTop/WithZero/WithOne). Small computational proofs normalize to identical generic shapes (L KNat (A G V)) since content lives in types/private automation. Outputs data/approx_match_{characterization.json,samples.jsonl}.
+  - OUTCOME C: normalized proof representation inadequate; no threshold regime separates shared strategy from shared idiom at this layer.
+
+[90] freeze (notes/86_90_approximate_strategy_case_study.md). Verifier verify_approximate_strategy_campaign.py ALL CHECKS PASSED. Structural mining of mature Mathlib comprehensively mapped (declaration/API saturated; proof level exhausted at four settings). No further matcher tuning, no proof-tree embeddings, no 70 GB proof dump. Next campaign: underdeveloped/frontier corpora (not started).

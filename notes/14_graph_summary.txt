@@ -1,0 +1,188 @@
+Mathlib Atlas - script 14 graph analysis summary
+nodes (Mathlib declarations): 574391
+modules: 8287   top-level areas: 32
+09 relation rows (distinct directed edges): 16316230
+total reference multiplicity: 752376214
+edges to non-Mathlib (core/Std) targets: 4937800
+12 structural link rows scanned: 80374
+
+== per-node degree distributions (multiplicity / distinct neighbours) ==
+outRefs                n= 574391 min=     0 p50=    103 p90=    3243 p99=    19676 max=     49157 mean=     1309.87
+outNeighbors           n= 574391 min=     0 p50=     21 p90=      59 p99=      129 max=       409 mean=       28.41
+inRefs                 n= 574391 min=     0 p50=      1 p90=      23 p99=     2550 max=  27312395 mean=     1027.21
+inNeighbors            n= 574391 min=     0 p50=      1 p90=       8 p99=      155 max=    115338 mean=       19.81
+structLinks            n= 574391 min=     0 p50=      0 p90=       0 p99=        3 max=        56 mean=        0.17
+declarations with zero outgoing references: 839
+declarations never referenced (inRefs=0):   176006
+
+== top 20 in-hubs (most referenced; multiplicity) ==
+   27312395  Real  [inductive, Mathlib.Data.Real.Basic]
+   23548504  CommSemiring.toSemiring  [definition, Mathlib.Algebra.Ring.Defs]
+   19139074  CommRing.toCommSemiring  [definition, Mathlib.Algebra.Ring.Defs]
+    8310054  Complex  [inductive, Mathlib.Data.Complex.Basic]
+    7236856  CategoryTheory.CategoryStruct.toQuiver  [definition, Mathlib.CategoryTheory.Category.Basic]
+    6947907  AddCommGroup.toAddCommMonoid  [definition, Mathlib.Algebra.Group.Defs]
+    6480943  CategoryTheory.Functor.obj  [definition, Mathlib.CategoryTheory.Functor.Basic]
+    6466248  Opposite  [inductive, Mathlib.Data.Opposite]
+    6283533  Semiring.toNonAssocSemiring  [definition, Mathlib.Algebra.Ring.Defs]
+    6281150  CommRingCat  [inductive, Mathlib.Algebra.Category.Ring.Basic]
+    5939606  CommRingCat.instCategory  [definition, Mathlib.Algebra.Category.Ring.Basic]
+    5898811  Field.toSemifield  [definition, Mathlib.Algebra.Field.Defs]
+    5775968  Set  [definition, Mathlib.Data.Set.Defs]
+    5561773  NormedAddCommGroup.toSeminormedAddCommGroup  [definition, Mathlib.Analysis.Normed.Group.Defs]
+    5498983  CategoryTheory.Category.toCategoryStruct  [definition, Mathlib.CategoryTheory.Category.Basic]
+    5019760  CategoryTheory.Category.opposite  [definition, Mathlib.CategoryTheory.Opposites]
+    4755039  DivisionSemiring.toSemiring  [definition, Mathlib.Algebra.Field.Defs]
+    4717331  Ring.toSemiring  [definition, Mathlib.Algebra.Ring.Defs]
+    4498689  Quiver.Hom  [definition, Mathlib.Combinatorics.Quiver.Basic]
+    4497425  Semifield.toDivisionSemiring  [definition, Mathlib.Algebra.Field.Defs]
+
+== top 20 out-degree (most references made; multiplicity) ==
+      49157  _private.Mathlib.CategoryTheory.Shift.CommShiftTwo.0.CategoryTheory.CommShift₂Setup.int._proof_2  [theorem, Mathlib.CategoryTheory.Shift.CommShiftTwo]
+      49156  CategoryTheory.CommShift₂Setup.int._proof_3  [theorem, Mathlib.CategoryTheory.Shift.CommShiftTwo]
+      49155  CategoryTheory.CommShift₂Setup.int._proof_1  [theorem, Mathlib.CategoryTheory.Shift.CommShiftTwo]
+      49154  CategoryTheory.CommShift₂Setup.int._proof_9  [theorem, Mathlib.CategoryTheory.Shift.CommShiftTwo]
+      49154  CategoryTheory.CommShift₂Setup.int._proof_7  [theorem, Mathlib.CategoryTheory.Shift.CommShiftTwo]
+      49141  CategoryTheory.CommShift₂Setup.int._proof_4  [theorem, Mathlib.CategoryTheory.Shift.CommShiftTwo]
+      49126  CategoryTheory.CommShift₂Setup.int._proof_5  [theorem, Mathlib.CategoryTheory.Shift.CommShiftTwo]
+      48826  CategoryTheory.CommShift₂Setup.int._proof_11  [theorem, Mathlib.CategoryTheory.Shift.CommShiftTwo]
+      46418  AlgebraicGeometry.LocallyRingedSpace.toΓSpecCBasicOpens._proof_2  [theorem, Mathlib.AlgebraicGeometry.GammaSpecAdjunction]
+      46347  AlgebraicGeometry.Scheme.Cover.ColimitGluingData.gluedCocone._proof_6  [theorem, Mathlib.AlgebraicGeometry.ColimitsOver]
+      46028  gelfandStarTransform_naturality  [theorem, Mathlib.Analysis.CStarAlgebra.GelfandDuality]
+      45846  HomologicalComplex₂.D₂_totalShift₁XIso_hom_assoc  [theorem, Mathlib.Algebra.Homology.TotalComplexShift]
+      45846  HomologicalComplex₂.D₂_totalShift₂XIso_hom_assoc  [theorem, Mathlib.Algebra.Homology.TotalComplexShift]
+      45846  HomologicalComplex₂.D₁_totalShift₁XIso_hom_assoc  [theorem, Mathlib.Algebra.Homology.TotalComplexShift]
+      45846  HomologicalComplex₂.D₁_totalShift₂XIso_hom_assoc  [theorem, Mathlib.Algebra.Homology.TotalComplexShift]
+      45745  AlgebraicGeometry.Scheme.Cover.ColimitGluingData.gluedCocone._proof_8  [theorem, Mathlib.AlgebraicGeometry.ColimitsOver]
+      45623  spectrum.gelfandTransform_eq  [theorem, Mathlib.Analysis.CStarAlgebra.GelfandDuality]
+      45609  AlgebraicGeometry.SpecModulesToSheafFullyFaithful._proof_2  [theorem, Mathlib.AlgebraicGeometry.Modules.Tilde]
+      45565  HomologicalComplex₂.totalShift₂XIso._proof_5  [theorem, Mathlib.Algebra.Homology.TotalComplexShift]
+      45539  HomologicalComplex₂.totalShift₂XIso._proof_6  [theorem, Mathlib.Algebra.Homology.TotalComplexShift]
+
+== top 25 bridge modules (distinct other areas reached out, then cross-area out refs) ==
+  areasOut=15 crossOut=  621675 outMods= 308 decls=   257  Mathlib.NumberTheory.NumberField.CanonicalEmbedding.Basic
+  areasOut=15 crossOut=  139168 outMods= 225 decls=   109  Mathlib.NumberTheory.NumberField.CanonicalEmbedding.ConvexBody
+  areasOut=14 crossOut= 2559743 outMods= 180 decls=   210  Mathlib.AlgebraicGeometry.Modules.Tilde
+  areasOut=14 crossOut=  488305 outMods= 135 decls=   128  Mathlib.AlgebraicGeometry.ProjectiveSpectrum.Scheme
+  areasOut=14 crossOut=  422562 outMods=  86 decls=   125  Mathlib.AlgebraicGeometry.ResidueField
+  areasOut=14 crossOut=  295621 outMods= 178 decls=   141  Mathlib.NumberTheory.NumberField.CanonicalEmbedding.FundamentalCone
+  areasOut=14 crossOut=  234617 outMods= 176 decls=   105  Mathlib.NumberTheory.NumberField.CMField
+  areasOut=14 crossOut=  194810 outMods= 212 decls=   146  Mathlib.NumberTheory.ModularForms.QExpansion
+  areasOut=14 crossOut=  185606 outMods= 120 decls=   175  Mathlib.NumberTheory.NumberField.InfinitePlace.Ramification
+  areasOut=14 crossOut=  123026 outMods= 194 decls=   125  Mathlib.NumberTheory.NumberField.InfinitePlace.Basic
+  areasOut=13 crossOut= 2380316 outMods= 138 decls=   324  Mathlib.AlgebraicGeometry.AffineScheme
+  areasOut=13 crossOut= 1599675 outMods=  92 decls=   287  Mathlib.AlgebraicGeometry.Restrict
+  areasOut=13 crossOut= 1223915 outMods= 115 decls=   332  Mathlib.AlgebraicGeometry.Scheme
+  areasOut=13 crossOut= 1006567 outMods= 118 decls=   232  Mathlib.AlgebraicGeometry.OpenImmersion
+  areasOut=13 crossOut=  700952 outMods= 122 decls=   112  Mathlib.AlgebraicGeometry.AffineSpace
+  areasOut=13 crossOut=  402830 outMods= 119 decls=    83  Mathlib.AlgebraicGeometry.Morphisms.ClosedImmersion
+  areasOut=13 crossOut=  401132 outMods= 105 decls=   247  Mathlib.AlgebraicGeometry.Pullbacks
+  areasOut=13 crossOut=  357874 outMods= 251 decls=   132  Mathlib.NumberTheory.Harmonic.ZetaAsymp
+  areasOut=13 crossOut=  304575 outMods= 128 decls=    68  Mathlib.AlgebraicGeometry.Properties
+  areasOut=13 crossOut=  253367 outMods= 232 decls=    49  Mathlib.NumberTheory.NumberField.Discriminant.Basic
+  areasOut=13 crossOut=  201510 outMods= 259 decls=   142  Mathlib.MeasureTheory.Measure.Hausdorff
+  areasOut=13 crossOut=  185827 outMods= 179 decls=    67  Mathlib.Analysis.SpecialFunctions.PolarCoord
+  areasOut=13 crossOut=  182147 outMods= 222 decls=    90  Mathlib.NumberTheory.NumberField.Units.DirichletTheorem
+  areasOut=13 crossOut=  171399 outMods= 213 decls=   121  Mathlib.NumberTheory.NumberField.Cyclotomic.Basic
+  areasOut=13 crossOut=  163901 outMods= 168 decls=    75  Mathlib.NumberTheory.ModularForms.LevelOne.DimensionFormula
+
+== areas (decls / modules / internal / out / in / area reach) ==
+  Algebra          decls= 101414 modules= 1344 internal=  65316233 out= 18220939 in=173609395 areasOut=21
+  CategoryTheory   decls=  77929 modules= 1099 internal=  78044044 out= 18218415 in= 19959109 areasOut=17
+  Analysis         decls=  51069 modules=  797 internal=  26461579 out= 57758977 in= 12960735 areasOut=21
+  Topology         decls=  48514 modules=  683 internal=  11450497 out= 18064810 in= 18570293 areasOut=22
+  Data             decls=  44751 modules=  632 internal=   5290985 out=  3078326 in= 89605182 areasOut=16
+  RingTheory       decls=  38605 modules=  720 internal=   8335965 out= 53801920 in=  1456919 areasOut=19
+  Order            decls=  33525 modules=  314 internal=   5457500 out=  1770122 in= 13765053 areasOut=16
+  LinearAlgebra    decls=  22323 modules=  371 internal=   3245166 out= 28304817 in=  2154452 areasOut=19
+  MeasureTheory    decls=  19764 modules=  328 internal=   2252722 out= 19998222 in=   913794 areasOut=18
+  GroupTheory      decls=  17333 modules=  168 internal=   1712513 out= 10995994 in=   585538 areasOut=16
+  Tactic           decls=  16693 modules=  349 internal=    333286 out=   846155 in=  1023230 areasOut=17
+  Combinatorics    decls=  15984 modules=  185 internal=   1149390 out=  4948585 in=  5243359 areasOut=17
+  NumberTheory     decls=  14475 modules=  240 internal=   3496439 out= 21286717 in=    36077 areasOut=20
+  Geometry         decls=  10750 modules=  148 internal=   2144550 out= 17057314 in=  7950784 areasOut=19
+  AlgebraicGeometry decls=  10566 modules=  139 internal=  10945385 out= 35866889 in=       87 areasOut=18
+  AlgebraicTopology decls=   9844 modules=  160 internal=   6408312 out=  8718326 in=   165944 areasOut=12
+  Probability      decls=   6487 modules=  138 internal=    654486 out=  7783556 in=     3953 areasOut=18
+  FieldTheory      decls=   5663 modules=   84 internal=   1046162 out=  7940582 in=   332003 areasOut=16
+  SetTheory        decls=   5582 modules=   55 internal=   1240979 out=   670249 in=   534361 areasOut=13
+  Computability    decls=   4788 modules=   29 internal=    548283 out=   619659 in=       17 areasOut=12
+  RepresentationTheory decls=   4075 modules=   44 internal=   1763539 out= 11355339 in=       52 areasOut=16
+  ModelTheory      decls=   3824 modules=   34 internal=    473907 out=   625962 in=      729 areasOut=16
+  Logic            decls=   3800 modules=   46 internal=    151847 out=   168796 in=  2714719 areasOut= 6
+  Dynamics         decls=   1390 modules=   34 internal=     42498 out=   433122 in=     9646 areasOut=13
+  Lean             decls=   1000 modules=   34 internal=     14536 out=       16 in=     2656 areasOut= 1
+  Control          decls=    999 modules=   25 internal=     18159 out=    66635 in=    12419 areasOut= 8
+  Util             decls=    983 modules=   31 internal=      6096 out=       21 in=    24640 areasOut= 3
+  Condensed        decls=    976 modules=   32 internal=     70675 out=  3104652 in=        0 areasOut= 8
+  Basic            decls=    894 modules=   11 internal=      5106 out=    12758 in=   299481 areasOut= 5
+  InformationTheory decls=    276 modules=    9 internal=      6069 out=   215237 in=        0 areasOut=10
+  Testing          decls=    109 modules=    3 internal=       466 out=     1515 in=        0 areasOut= 4
+  Init             decls=      6 modules=    1 internal=         0 out=        0 in=        0 areasOut= 0
+
+== top 30 cross-area edges (multiplicity) ==
+   47622670  RingTheory -> Algebra
+   25434924  Analysis -> Data
+   25310114  Analysis -> Algebra
+   24753605  LinearAlgebra -> Algebra
+   16615255  AlgebraicGeometry -> Algebra
+   10445599  RepresentationTheory -> Algebra
+    9939451  NumberTheory -> Algebra
+    8740572  NumberTheory -> Data
+    8551820  MeasureTheory -> Data
+    8377123  Algebra -> CategoryTheory
+    8007601  GroupTheory -> Algebra
+    7945506  AlgebraicGeometry -> Geometry
+    7038297  FieldTheory -> Algebra
+    7001171  CategoryTheory -> Data
+    6739161  Topology -> Data
+    6045228  Algebra -> Data
+    5957462  Topology -> Algebra
+    5037780  Geometry -> Analysis
+    4841811  AlgebraicGeometry -> Topology
+    4829229  Analysis -> Topology
+    4629388  Geometry -> Data
+    4620881  MeasureTheory -> Analysis
+    4446729  CategoryTheory -> Combinatorics
+    4315541  AlgebraicTopology -> CategoryTheory
+    4290664  CategoryTheory -> Algebra
+    4109215  Probability -> Data
+    3900466  Geometry -> Algebra
+    3843495  AlgebraicGeometry -> CategoryTheory
+    3318075  RingTheory -> Data
+    3245106  MeasureTheory -> Algebra
+
+== anomaly candidates: rfl-closed proofs with largest value terms ==
+  valueNodes=  50000 outRefs= 45308  AlgebraicGeometry.SpecModulesToSheafFullyFaithful._proof_6  [Mathlib.AlgebraicGeometry.Modules.Tilde]
+  valueNodes=  50000 outRefs= 32926  PresheafOfModules.Monoidal.tensorObj_map_tmul  [Mathlib.Algebra.Category.ModuleCat.Presheaf.Monoidal]
+  valueNodes=  50000 outRefs= 17042  LieAlgebra.of_add  [Mathlib.Algebra.Lie.Extension]
+  valueNodes=  50000 outRefs=  9917  IntermediateField.liftAlgEquiv._proof_11  [Mathlib.FieldTheory.IntermediateField.Basic]
+  valueNodes=  50000 outRefs= 16138  TopCat.isLimitConeOfForget._proof_3  [Mathlib.Topology.Category.TopCat.Limits.Basic]
+  valueNodes=  50000 outRefs= 19911  FDRep.forget₂HomLinearEquiv._proof_7  [Mathlib.RepresentationTheory.FDRep]
+  valueNodes=  50000 outRefs= 16562  groupCohomology.cocycles₁IsoOfIsTrivial._proof_9  [Mathlib.RepresentationTheory.Homological.GroupCohomology.LowDegree]
+  valueNodes=  50000 outRefs= 20439  Ideal.powQuotSuccInclusion._proof_5  [Mathlib.NumberTheory.RamificationInertia.Basic]
+  valueNodes=  50000 outRefs= 25886  ContinuousCohomology.d₀kerIso._proof_4  [Mathlib.RepresentationTheory.Homological.ContCohomology.LowDegree]
+  valueNodes=  50000 outRefs= 22581  AddMonCat.forget_createsLimit._proof_6  [Mathlib.Algebra.Category.MonCat.Limits]
+  valueNodes=  50000 outRefs= 22581  MonCat.forget_createsLimit._proof_6  [Mathlib.Algebra.Category.MonCat.Limits]
+  valueNodes=  50000 outRefs= 40650  CochainComplex.HomComplex.leftHomologyData'._proof_6  [Mathlib.Algebra.Homology.HomotopyCategory.HomComplexCohomology]
+  valueNodes=  50000 outRefs= 15652  SubAddAction.ofFixingAddSubgroup_insert_map_apply  [Mathlib.GroupTheory.GroupAction.SubMulAction.OfFixingSubgroup]
+  valueNodes=  50000 outRefs= 20445  Ideal.powQuotSuccInclusion._proof_7  [Mathlib.NumberTheory.RamificationInertia.Basic]
+  valueNodes=  50000 outRefs= 24200  IsDedekindDomain.HeightOneSpectrum.adicCompletion.coe_valueGroupEquiv  [Mathlib.RingTheory.DedekindDomain.AdicValuation]
+
+== anomaly candidates: largest out-degree / value-term ratio skew ==
+  valueNodes=  50000 outRefs=  4122 rfl=0  DirectedSystem.rTensor  [theorem, Mathlib.RingTheory.TensorProduct.DirectLimitFG]
+  valueNodes=  50000 outRefs= 10014 rfl=0  LinearMap.IsPerfPair.restrictScalars_of_field  [theorem, Mathlib.LinearAlgebra.PerfectPairing.Restrict]
+  valueNodes=  50000 outRefs=  8985 rfl=0  CategoryTheory.Functor.IsCoverDense.compatiblePreserving  [theorem, Mathlib.CategoryTheory.Sites.DenseSubsite.Basic]
+  valueNodes=  50000 outRefs= 12049 rfl=0  char_dvd_card_solutions_of_sum_lt  [theorem, Mathlib.FieldTheory.ChevalleyWarning]
+  valueNodes=  50000 outRefs= 17921 rfl=0  Rep.indCoindIso._proof_2  [theorem, Mathlib.RepresentationTheory.FiniteIndex]
+  valueNodes=  50000 outRefs= 18066 rfl=0  SSet.Truncated.HomotopyCategory.morphismProperty_eq_top  [theorem, Mathlib.AlgebraicTopology.SimplicialSet.HomotopyCat]
+  valueNodes=  50000 outRefs= 15145 rfl=0  MeasureTheory.lintegral_abs_det_fderiv_le_addHaar_image_aux1  [theorem, Mathlib.MeasureTheory.Function.Jacobian]
+  valueNodes=  50000 outRefs= 18806 rfl=0  CategoryTheory.ShortComplex.ShortExact.singleTriangleIso._proof_2  [theorem, Mathlib.Algebra.Homology.DerivedCategory.SingleTriangle]
+  valueNodes=  50000 outRefs=  6513 rfl=0  CategoryTheory.Bicategory.Adjunction.isAbsoluteLeftKan._proof_2  [theorem, Mathlib.CategoryTheory.Bicategory.Kan.Adjunction]
+  valueNodes=  50000 outRefs= 22423 rfl=0  Nat.succ_mul_centralBinom_succ  [theorem, Mathlib.Data.Nat.Choose.Central]
+  valueNodes=  50000 outRefs= 10953 rfl=0  Rep.Tor._proof_4  [theorem, Mathlib.RepresentationTheory.Homological.GroupHomology.Basic]
+  valueNodes=  50000 outRefs=  5647 rfl=0  CategoryTheory.Monad.MonadicityInternal.comparisonLeftAdjointHomEquiv._proof_3  [theorem, Mathlib.CategoryTheory.Monad.Monadicity]
+  valueNodes=  50000 outRefs= 15768 rfl=0  Orientation.rightAngleRotationAux₂._proof_2  [theorem, Mathlib.Analysis.InnerProductSpace.TwoDim]
+  valueNodes=  50000 outRefs= 20474 rfl=0  _private.Mathlib.Analysis.SpecialFunctions.Trigonometric.Angle.0.Real.Angle.eq_iff_sign_eq_and_abs_toReal_eq._proof_1_1  [theorem, Mathlib.Analysis.SpecialFunctions.Trigonometric.Angle]
+  valueNodes=  50000 outRefs=  9849 rfl=0  MeasureTheory.mem_closedCompactCylinders  [theorem, Mathlib.MeasureTheory.Constructions.ClosedCompactCylinders]
+

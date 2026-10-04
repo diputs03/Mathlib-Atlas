@@ -1,0 +1,13 @@
+# Logs
+logs
+*.log
+
+# External projects
+external/
+
+# IDE files
+.vscode/
+/.lake
+
+# Data files
+data/
